@@ -1,0 +1,4 @@
+openpyxl
+pillow
+reportlab
+
