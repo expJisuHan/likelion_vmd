@@ -286,42 +286,6 @@ async function saveBatchHistory(payload) {
   }
 }
 
-async function saveBatchHistory(payload) {
-  const results = Array.isArray(payload.results) ? payload.results : [];
-  const items = await Promise.all(results.map(async (item) => {
-    const sourceImage = state.images.find((image) => image.name === item.imageName);
-    return {
-      imageName: item.imageName || "image",
-      result: item.result || {},
-      jsonPath: item.jsonPath || "",
-      status: item.status || "success",
-      error: item.error || "",
-      thumbnail: await makeThumbnail(sourceImage),
-      originalImage: sourceImage?.dataUrl || "",
-    };
-  }));
-  if (!items.length) {
-    return;
-  }
-  const entry = {
-    id: makeHistoryId(),
-    kind: "batch-group",
-    createdAt: new Date().toISOString(),
-    imageCount: items.length,
-    imageNames: items.map((item) => item.imageName),
-    items,
-    result: items[0].result,
-    jsonPath: items[0].jsonPath,
-    downloadUrl: payload.downloadUrl || "",
-    pdfDownloadUrl: payload.pdfDownloadUrl || "",
-    thumbnail: items[0].thumbnail || "",
-    thumbnails: items.map((item) => item.thumbnail).filter(Boolean),
-  };
-  const originalImages = items.map((item) => item.originalImage || "");
-  items.forEach((item) => delete item.originalImage);
-  await saveHistoryAssets(entry.id, originalImages);
-  addHistoryEntries([entry]);
-}
 
 function setProgress(message) {
   progressText.textContent = message;
@@ -803,100 +767,6 @@ function renderHistoryPhotoList(entry, selectedIndex = 0) {
   });
 }
 
-function renderHistoryStory(entry) {
-  const result = entry.result || {};
-  const photo = result.photo_quality || {};
-  const mannequin = result.mannequin || {};
-  historyStoryViewport.innerHTML = "";
-
-  const overview = createStorySlide("종합 결과");
-  const metrics = document.createElement("div");
-  metrics.className = "result-grid history-result-grid";
-  metrics.append(
-    createStoryMetric("score-card", "Total Score", String(result.total_score ?? "--"), result.grade || "--"),
-    createStoryMetric("metric-card", "Zone", `${result.user_selected_zone || "VP"} / ${result.ai_detected_zone || "UNKNOWN"}`, `confidence ${Math.round((result.zone_confidence || 0) * 100)}%`),
-    createStoryMetric("metric-card", "Photo Quality", String(photo.score ?? "--"), photo.needs_retake ? "retake recommended" : "ready to use"),
-    createStoryMetric("metric-card", "Mannequin", mannequin.exists ? "Detected" : "Not detected", mannequin.type || "type --"),
-  );
-  const overviewLayout = document.createElement("div");
-  overviewLayout.className = "detail-layout";
-  const imageBlock = createStoryBlock("Analysis Image");
-  if (entry.thumbnail) {
-    const image = document.createElement("img");
-    image.className = "history-story-image";
-    image.src = entry.thumbnail;
-    image.alt = entry.imageName || entry.imageNames?.join(", ") || "Analysis image";
-    imageBlock.appendChild(image);
-  } else {
-    const placeholder = document.createElement("p");
-    placeholder.className = "body-text";
-    placeholder.textContent = "No preview image";
-    imageBlock.appendChild(placeholder);
-  }
-  const overviewBlock = createStoryBlock("Summary");
-  const overviewText = document.createElement("p");
-  overviewText.className = "body-text";
-  overviewText.textContent = historyText(result.zone_evaluation_summary || result.final_summary);
-  overviewBlock.appendChild(overviewText);
-  overviewLayout.append(imageBlock, overviewBlock);
-  overview.append(metrics, overviewLayout);
-  historyStoryViewport.appendChild(overview);
-
-  const criteriaSlide = createStorySlide("항목별 평가");
-  const criteriaBlock = createStoryBlock("항목별 평가");
-  const criteriaRoot = document.createElement("div");
-  criteriaRoot.className = "score-bars";
-  renderCriteriaEvaluations(result, criteriaRoot);
-  criteriaBlock.appendChild(criteriaRoot);
-  criteriaSlide.appendChild(criteriaBlock);
-  historyStoryViewport.appendChild(criteriaSlide);
-
-  const photoSlide = createStorySlide("사진 품질");
-  const photoLayout = document.createElement("div");
-  photoLayout.className = "detail-layout";
-  const photoBlock = createStoryBlock("사진 품질");
-  const photoText = document.createElement("p");
-  photoText.className = "body-text";
-  photoText.textContent = historyText(photo.comment);
-  photoBlock.appendChild(photoText);
-  const mannequinBlock = createStoryBlock("마네킹");
-  const mannequinText = document.createElement("p");
-  mannequinText.className = "body-text";
-  mannequinText.textContent = historyText(mannequin.comment, mannequin.exists ? mannequin.type || "Detected" : "Not detected");
-  mannequinBlock.appendChild(mannequinText);
-  photoLayout.append(photoBlock, mannequinBlock);
-  photoSlide.appendChild(photoLayout);
-  historyStoryViewport.appendChild(photoSlide);
-
-  historyStoryViewport.appendChild(createStoryListBlock("잘된 점", result.positive_points));
-  historyStoryViewport.lastElementChild.dataset.title = "잘된 점";
-  historyStoryViewport.appendChild(createStoryListBlock("문제점", result.critical_issues || result.detected_issues));
-  historyStoryViewport.lastElementChild.dataset.title = "문제점";
-  historyStoryViewport.appendChild(createStoryListBlock("개선 제안", result.improvement_suggestions || result.improvement_actions));
-  historyStoryViewport.lastElementChild.dataset.title = "개선 제안";
-
-  const summarySlide = createStorySlide("최종 요약");
-  const summaryBlock = createStoryBlock("최종 요약");
-  const summaryText = document.createElement("p");
-  summaryText.className = "body-text";
-  summaryText.textContent = historyText(result.final_summary || result.overall_improvement_summary);
-  summaryBlock.appendChild(summaryText);
-  summarySlide.appendChild(summaryBlock);
-  historyStoryViewport.appendChild(summarySlide);
-
-  const obstaclesSlide = createStorySlide("방해 요소");
-  const obstaclesBlock = createStoryBlock("방해 요소");
-  const obstaclesRoot = document.createElement("div");
-  obstaclesRoot.className = "pill-list";
-  renderObstacles(Array.isArray(result.obstacles) ? result.obstacles : [], obstaclesRoot);
-  obstaclesBlock.appendChild(obstaclesRoot);
-  obstaclesSlide.appendChild(obstaclesBlock);
-  historyStoryViewport.appendChild(obstaclesSlide);
-
-  state.historyStoryIndex = 0;
-  showHistoryStory(0);
-}
-
 function renderHistoryStory(entry, startImageIndex = 0) {
   const carouselItems = historyCarouselItems(entry);
   let imageIndex = Math.max(0, Math.min(startImageIndex, carouselItems.length - 1));
@@ -1041,65 +911,6 @@ function showHistoryStory(index) {
   historyStoryProgress.textContent = `${state.historyStoryIndex + 1} / ${slides.length}`;
   historyStoryPrevBtn.disabled = state.historyStoryIndex === 0;
   historyStoryNextBtn.disabled = state.historyStoryIndex === slides.length - 1;
-}
-
-function renderHistory() {
-  historyCount.textContent = String(state.history.length);
-  historyGrid.innerHTML = "";
-  const totalPages = Math.max(1, Math.ceil(state.history.length / HISTORY_PAGE_SIZE));
-  state.historyPage = Math.max(0, Math.min(state.historyPage, totalPages - 1));
-  const start = state.historyPage * HISTORY_PAGE_SIZE;
-  const pageEntries = state.history.slice(start, start + HISTORY_PAGE_SIZE);
-  historyEmpty.classList.toggle("hidden", state.history.length > 0);
-  historyPagination.classList.toggle("hidden", state.history.length <= HISTORY_PAGE_SIZE);
-  historyPageLabel.textContent = `${state.history.length ? state.historyPage + 1 : 1} / ${totalPages}`;
-  historyPrevBtn.disabled = state.historyPage === 0;
-  historyNextBtn.disabled = state.historyPage >= totalPages - 1;
-
-  pageEntries.forEach((entry) => {
-    const result = entry.result || {};
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "history-card";
-    row.addEventListener("click", () => openHistoryDetail(entry));
-
-    if (entry.thumbnail) {
-      const image = document.createElement("img");
-      image.src = entry.thumbnail;
-      image.alt = entry.imageName || "Analysis image";
-      image.className = "history-card-image";
-      row.appendChild(image);
-    } else {
-      const placeholder = document.createElement("div");
-      placeholder.className = "history-card-image history-card-placeholder";
-      placeholder.textContent = "VMD";
-      row.appendChild(placeholder);
-    }
-
-    const content = document.createElement("div");
-    content.className = "history-card-content";
-    const heading = document.createElement("div");
-    heading.className = "history-card-heading";
-    const title = document.createElement("strong");
-    title.textContent = historyTitle(entry);
-    const date = document.createElement("time");
-    date.textContent = formatHistoryDate(entry.createdAt);
-    heading.append(title, date);
-    const metrics = document.createElement("div");
-    metrics.className = "history-card-metrics";
-    const score = document.createElement("strong");
-    score.textContent = `${result.total_score ?? "--"}`;
-    const grade = document.createElement("span");
-    grade.textContent = result.grade || entry.status || "--";
-    const zone = document.createElement("span");
-    zone.textContent = result.user_selected_zone || "VP";
-    metrics.append(score, grade, zone);
-    const summary = document.createElement("p");
-    summary.textContent = result.final_summary || entry.error || "Open result details";
-    content.append(heading, metrics, summary);
-    row.appendChild(content);
-    historyGrid.appendChild(row);
-  });
 }
 
 function openHistoryDetail(entry) {
