@@ -5,9 +5,9 @@ from datetime import datetime
 from typing import Any
 from xml.sax.saxutils import escape
 
-from .config import settings
-from .utils import image_data_url_to_media, image_data_url_to_thumbnail, timestamp
-from .vmd_core import excel_column_widths_for_zone, excel_headers_for_zone, record_zone, result_to_row
+from ..config import settings
+from ..services.records import excel_column_widths_for_zone, excel_headers_for_zone, record_zone, result_to_row
+from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, timestamp
 
 try:
     from openpyxl import Workbook
