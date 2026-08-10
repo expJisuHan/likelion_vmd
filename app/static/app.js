@@ -620,45 +620,6 @@ function renderHistory() {
   });
 }
 
-function openHistoryDetail(entry) {
-  const result = entry.result || {};
-  const photo = result.photo_quality || {};
-  const mannequin = result.mannequin || {};
-  document.getElementById("historyDetailTitle").textContent = historyTitle(entry);
-  document.getElementById("historyDetailMeta").textContent = `${formatHistoryDate(entry.createdAt)} · ${entry.imageNames?.join(", ") || entry.imageName || "저장 결과"}`;
-  document.getElementById("historyTotalScore").textContent = result.total_score ?? "--";
-  document.getElementById("historyGrade").textContent = result.grade || "평가 보류";
-  document.getElementById("historyZoneResult").textContent = `${result.user_selected_zone || "VP"} → ${result.ai_detected_zone || "UNKNOWN"}`;
-  document.getElementById("historyZoneConfidence").textContent = `confidence ${Math.round((result.zone_confidence || 0) * 100)}%`;
-  document.getElementById("historyPhotoScore").textContent = photo.score ?? "--";
-  document.getElementById("historyRetakeFlag").textContent = photo.needs_retake ? "재촬영 권장" : "촬영 사용 가능";
-  document.getElementById("historyMannequinFlag").textContent = mannequin.exists ? "있음" : "없음";
-  document.getElementById("historyMannequinType").textContent = mannequin.type || "type --";
-  document.getElementById("historyPhotoComment").textContent = photo.comment || "사진 품질 코멘트가 없습니다.";
-  document.getElementById("historyMannequinComment").textContent = mannequin.exists
-    ? mannequin.comment || "마네킹 판정 근거가 없습니다."
-    : "사진에서 마네킹이 감지되지 않았습니다.";
-  document.getElementById("historyFinalSummary").textContent = result.final_summary || "최종 요약이 없습니다.";
-  renderCriteriaEvaluations(result, "historyScoreBars");
-  renderList("historyPositivePoints", result.positive_points || []);
-  renderList("historyCriticalIssues", result.critical_issues || []);
-  renderList("historyImprovements", result.improvement_suggestions || []);
-  renderObstacles(result.obstacles || [], "historyObstacles");
-
-  const detailDownloadLink = document.getElementById("historyDownloadLink");
-  detailDownloadLink.classList.toggle("hidden", !entry.downloadUrl);
-  if (entry.downloadUrl) {
-    detailDownloadLink.href = entry.downloadUrl;
-  }
-  historyPdfDownloadLink.classList.toggle("hidden", !entry.pdfDownloadUrl);
-  if (entry.pdfDownloadUrl) {
-    historyPdfDownloadLink.href = entry.pdfDownloadUrl;
-  }
-  document.getElementById("historyJsonPath").textContent = entry.jsonPath ? `JSON: ${entry.jsonPath}` : "";
-  historyModal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
-}
-
 function closeHistoryDetail() {
   historyModal.classList.add("hidden");
   document.body.classList.remove("modal-open");
@@ -911,26 +872,6 @@ function showHistoryStory(index) {
   historyStoryProgress.textContent = `${state.historyStoryIndex + 1} / ${slides.length}`;
   historyStoryPrevBtn.disabled = state.historyStoryIndex === 0;
   historyStoryNextBtn.disabled = state.historyStoryIndex === slides.length - 1;
-}
-
-function openHistoryDetail(entry) {
-  state.activeHistoryEntry = entry;
-  document.getElementById("historyDetailTitle").textContent = historyTitle(entry);
-  document.getElementById("historyDetailMeta").textContent = `${formatHistoryDate(entry.createdAt)} · ${entry.imageNames?.join(", ") || entry.imageName || "Saved result"}`;
-  renderHistoryStory(entry);
-
-  const detailDownloadLink = document.getElementById("historyDownloadLink");
-  detailDownloadLink.classList.toggle("hidden", !entry.downloadUrl);
-  if (entry.downloadUrl) {
-    detailDownloadLink.href = entry.downloadUrl;
-  }
-  historyPdfDownloadLink.classList.toggle("hidden", !entry.pdfDownloadUrl);
-  if (entry.pdfDownloadUrl) {
-    historyPdfDownloadLink.href = entry.pdfDownloadUrl;
-  }
-  document.getElementById("historyJsonPath").textContent = entry.jsonPath ? `JSON: ${entry.jsonPath}` : "";
-  historyModal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
 }
 
 async function openHistoryDetail(entry) {

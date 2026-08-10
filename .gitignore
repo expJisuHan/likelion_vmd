@@ -24,6 +24,11 @@ temp/
 *.bak
 *.swp
 
+# Node/Vite frontend
+app/static/node_modules/
+app/static/dist/
+.vercel
+
 # OS and editor files
 .DS_Store
 Thumbs.db
