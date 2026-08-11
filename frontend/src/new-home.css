@@ -160,7 +160,8 @@
   opacity: 1;
   pointer-events: auto;
   cursor: pointer;
-  left: calc(100% - 440px);
+  /* 모달 너비(420px)의 약 15%만 왼쪽 가장자리로 보이고 나머지는 화면 오른쪽 밖으로 빠짐 */
+  left: calc(100% - 63px);
   transform: translate(0, -50%);
   box-shadow: -12px 0 32px rgba(17, 17, 17, 0.12);
 }
