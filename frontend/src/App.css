@@ -22,8 +22,6 @@
   mix-blend-mode: screen;
   filter: blur(28px);
   opacity: 0.9;
-  background-size: 400% 100%;
-  animation: gradientShift 8s linear infinite;
   pointer-events: none;
 }
 
@@ -38,31 +36,11 @@
   line-height: 1.02;
   margin: 0.25rem 0 0.75rem;
   letter-spacing: -0.02em;
-  text-shadow: 0 6px 20px '''rgba(2,6,23,0.3), 0 1px 0 rgba(255,255,255,0.02)''' gainsboro, 0 1px 0 gainsboro;
-  animation: bannerFloat 3s ease-in-out infinite;
-  transform-origin: center;
-}
-
-@keyframes gradientShift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
-}
-
-@keyframes bannerFloat {
-  0% { transform: translateY(0) scale(1); }
-  50% { transform: translateY(-4px) scale(1.03); }
-  100% { transform: translateY(0) scale(1); }
 }
 
 /* Make the eyebrow and hero copy a bit brighter for contrast */
 .hero .eyebrow { color: #9fb8ff; font-weight: 600; }
 .hero .hero-copy { color: #000; }
-
-/* Accessibility: reduce motion preference */
-@media (prefers-reduced-motion: reduce) {
-  .hero::before, .banner-title { animation: none; }
-}
 
 /* Fix size for '추가 평가 요청' textarea */
 #extraCriteria {
