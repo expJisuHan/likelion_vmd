@@ -1,4 +1,4 @@
-"""LM Studio(및 향후 다른 LLM)에 보낼 JSON 스키마와 프롬프트 텍스트."""
+"""NVIDIA NIM(및 향후 다른 LLM)에 보낼 JSON 스키마와 프롬프트 텍스트."""
 
 from __future__ import annotations
 

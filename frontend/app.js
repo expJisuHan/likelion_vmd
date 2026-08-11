@@ -972,7 +972,7 @@ async function analyze() {
   pdfDownloadLink.classList.add("hidden");
   jsonPath.textContent = "";
   try {
-    setProgress("이미지를 준비하고 LM Studio로 분석 요청을 보내는 중입니다.");
+    setProgress("이미지를 준비하고 NVIDIA NIM으로 분석 요청을 보내는 중입니다.");
     const payload = await postJson("/api/analyze", { images: state.images, options: optionsPayload() });
     renderResult(payload.result, payload);
     await saveSingleHistory(payload);
