@@ -27,6 +27,7 @@ temp/
 # Node/Vite frontend
 node_modules/
 app/static/dist/
+.vite/
 .vercel
 
 # OS and editor files

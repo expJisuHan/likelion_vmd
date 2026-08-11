@@ -6,10 +6,13 @@ export default function App() {
   const [view, setView] = useState('app'); // 'app' or 'home'
 
   useEffect(() => {
-    import('../app.js').catch((error) => {
-      console.error('Failed to load legacy app logic', error);
-    });
-  }, []);
+    if (view !== 'app') return;
+    import('../app.js')
+      .then((mod) => mod.initApp())
+      .catch((error) => {
+        console.error('Failed to load legacy app logic', error);
+      });
+  }, [view]);
 
   return (
     <main className="shell">
