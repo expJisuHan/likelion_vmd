@@ -52,9 +52,13 @@ class Settings:
     )
 
     # --- Paths ---
+    # Vercel Functions는 배포 파일시스템이 읽기 전용이라 /tmp에만 쓸 수 있습니다.
+    # Vercel은 함수 환경에 VERCEL=1을 자동으로 주입하므로 이를 기준으로 출력 경로를 분기합니다.
     project_root: Path = PROJECT_ROOT
     frontend_dir: Path = PROJECT_ROOT / os.environ.get("FRONTEND_DIR", "frontend")
-    output_dir: Path = PROJECT_ROOT / os.environ.get("OUTPUT_DIR", "outputs")
+    output_dir: Path = (
+        Path("/tmp/outputs") if os.environ.get("VERCEL") == "1" else PROJECT_ROOT / os.environ.get("OUTPUT_DIR", "outputs")
+    )
 
     @property
     def json_dir(self) -> Path:

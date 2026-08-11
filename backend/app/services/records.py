@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from ..config import settings
-from ..utils import format_elapsed, list_to_lines, safe_file_name, timestamp
+from ..utils import format_elapsed, list_to_lines, relative_output_path, safe_file_name, timestamp
 from .zones import criteria_for_zone, normalize_zone
 
 EXCEL_COMMON_HEADERS = [
@@ -91,7 +91,7 @@ def save_json(name: str, payload: dict[str, Any]) -> str:
     settings.ensure_dirs()
     path = settings.json_dir / f"{safe_file_name(name)}_{timestamp()}.json"
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    return str(path.relative_to(settings.project_root))
+    return relative_output_path(path)
 
 
 def make_record(

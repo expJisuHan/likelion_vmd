@@ -7,7 +7,7 @@ from xml.sax.saxutils import escape
 
 from ..config import settings
 from ..services.records import excel_column_widths_for_zone, excel_headers_for_zone, record_zone, result_to_row
-from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, timestamp
+from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, relative_output_path, timestamp
 
 try:
     from openpyxl import Workbook
@@ -173,7 +173,7 @@ def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> tuple[
             xlsx.writestr("xl/drawings/drawing1.xml", drawing_xml)
             for part in image_parts:
                 xlsx.writestr(f'xl/media/{part["name"]}', part["data"])
-    return str(path.relative_to(settings.project_root)), path.read_bytes()
+    return relative_output_path(path), path.read_bytes()
 
 
 def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tuple[str, bytes]:
@@ -219,4 +219,4 @@ def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tu
     ws.freeze_panes = "A2"
     path = settings.excel_dir / f"{prefix}_{timestamp()}.xlsx"
     wb.save(path)
-    return str(path.relative_to(settings.project_root)), path.read_bytes()
+    return relative_output_path(path), path.read_bytes()

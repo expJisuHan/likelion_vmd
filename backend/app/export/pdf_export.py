@@ -8,7 +8,7 @@ from typing import Any
 from ..config import settings
 from ..services.records import criteria_evaluation_map, record_zone
 from ..services.zones import criteria_for_zone
-from ..utils import format_elapsed, image_data_url_to_media, list_to_lines, timestamp
+from ..utils import format_elapsed, image_data_url_to_media, list_to_lines, relative_output_path, timestamp
 
 try:
     from reportlab.lib import colors as pdf_colors
@@ -249,4 +249,4 @@ def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tupl
         author="AX R&D VMD",
     )
     document.build(story, onFirstPage=draw_pdf_footer, onLaterPages=draw_pdf_footer)
-    return str(path.relative_to(settings.project_root)), path.read_bytes()
+    return relative_output_path(path), path.read_bytes()

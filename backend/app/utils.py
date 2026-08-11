@@ -5,7 +5,10 @@ import re
 import struct
 from datetime import datetime
 from io import BytesIO
+from pathlib import Path
 from typing import Any
+
+from .config import settings
 
 try:
     from PIL import Image as PillowImage
@@ -17,6 +20,20 @@ except Exception:  # pragma: no cover - image embedding is optional.
 
 def timestamp() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
+
+
+def relative_output_path(path: Path) -> str:
+    """outputs/ 파일의 참조용 경로 문자열.
+
+    Vercel 배포에서는 output_dir이 /tmp 아래(project_root 밖)라 project_root 기준
+    상대경로로 변환할 수 없습니다. 그 경우 절대경로를 그대로 반환합니다 —
+    /api/download은 project_root와 절대경로를 이어붙여도 pathlib이 절대경로를
+    그대로 쓰기 때문에 여전히 같은 인스턴스 안에서는 동작합니다.
+    """
+    try:
+        return str(path.relative_to(settings.project_root))
+    except ValueError:
+        return str(path)
 
 
 def safe_file_name(name: str) -> str:
