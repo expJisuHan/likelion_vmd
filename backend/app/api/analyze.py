@@ -1,7 +1,9 @@
 """POST /api/analyze, POST /api/batch-analyze — VMD 이미지 분석."""
 
+import base64
 import time
 import urllib.parse
+from pathlib import Path
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
@@ -15,6 +17,10 @@ from ..services.zones import normalize_zone
 from ..utils import friendly_error_message, safe_file_name
 
 router = APIRouter()
+
+
+def _b64(content: bytes) -> str:
+    return base64.b64encode(content).decode("ascii")
 
 
 def _error_result(options_dict: Dict[str, Any]) -> Dict[str, Any]:
@@ -69,16 +75,20 @@ def api_analyze(payload: AnalyzeRequest) -> Dict[str, Any]:
     image_data_url = images[0].get("dataUrl", "") if images else ""
     record = make_record(image_names, analysis, image_data_url=image_data_url, elapsed_seconds=elapsed_seconds)
     result_prefix = f"{record_zone(record).lower()}_results"
-    excel_path = save_excel([record], prefix=result_prefix)
-    pdf_path = save_pdf([record], prefix=result_prefix)
+    excel_path, excel_bytes = save_excel([record], prefix=result_prefix)
+    pdf_path, pdf_bytes = save_pdf([record], prefix=result_prefix)
 
     return {
         "ok": True,
         "result": analysis["result"],
         "jsonPath": record["json_path"],
         "excelPath": excel_path,
+        "excelFileName": Path(excel_path).name,
+        "excelBase64": _b64(excel_bytes),
         "downloadUrl": f"/api/download?file={urllib.parse.quote(excel_path)}",
         "pdfPath": pdf_path,
+        "pdfFileName": Path(pdf_path).name,
+        "pdfBase64": _b64(pdf_bytes),
         "pdfDownloadUrl": f"/api/download?file={urllib.parse.quote(pdf_path)}",
         "elapsedSeconds": round(elapsed_seconds, 2),
     }
@@ -139,16 +149,20 @@ def api_batch_analyze(payload: BatchAnalyzeRequest) -> Dict[str, Any]:
 
     zone = normalize_zone(options.get("zoneMode"))
     result_prefix = f"{zone.lower()}_results"
-    excel_path = save_excel(records, prefix=result_prefix)
-    pdf_path = save_pdf(records, prefix=result_prefix)
+    excel_path, excel_bytes = save_excel(records, prefix=result_prefix)
+    pdf_path, pdf_bytes = save_pdf(records, prefix=result_prefix)
 
     return {
         "ok": True,
         "count": len(records),
         "results": batch_results,
         "excelPath": excel_path,
+        "excelFileName": Path(excel_path).name,
+        "excelBase64": _b64(excel_bytes),
         "downloadUrl": f"/api/download?file={urllib.parse.quote(excel_path)}",
         "pdfPath": pdf_path,
+        "pdfFileName": Path(pdf_path).name,
+        "pdfBase64": _b64(pdf_bytes),
         "pdfDownloadUrl": f"/api/download?file={urllib.parse.quote(pdf_path)}",
         "elapsedSeconds": round(time.time() - started, 2),
     }

@@ -83,7 +83,7 @@ def draw_pdf_footer(canvas: Any, doc: Any) -> None:
     canvas.restoreState()
 
 
-def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> str:
+def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tuple[str, bytes]:
     if not REPORTLAB_AVAILABLE:
         raise RuntimeError("PDF 저장을 위해 reportlab 패키지가 필요합니다. requirements.txt를 설치한 뒤 다시 시도해 주세요.")
     settings.ensure_dirs()
@@ -249,4 +249,4 @@ def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> str:
         author="AX R&D VMD",
     )
     document.build(story, onFirstPage=draw_pdf_footer, onLaterPages=draw_pdf_footer)
-    return str(path.relative_to(settings.project_root))
+    return str(path.relative_to(settings.project_root)), path.read_bytes()
