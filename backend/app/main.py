@@ -6,7 +6,7 @@
   api/download.py  -> GET /api/download
   api/static.py    -> GET /, GET /{file_path} (frontend/ 정적 파일 서빙)
 
-도메인 로직은 services/(존 기준, 프롬프트, LM Studio 클라이언트, 분석 오케스트레이션,
+도메인 로직은 services/(존 기준, 프롬프트, NVIDIA NIM 클라이언트, 분석 오케스트레이션,
 레코드 변환)로, 결과 파일 생성은 export/(Excel, PDF)로 분리되어 있습니다.
 
 주의: api/static.py의 `/{file_path:path}` 라우트는 다른 모든 경로와 매칭될 수 있으므로
@@ -38,8 +38,8 @@ app.add_middleware(
 def _on_startup() -> None:
     settings.ensure_dirs()
     print(f"VMD FastAPI backend running at http://{settings.host}:{settings.port}")
-    print(f"LM Studio endpoint: {settings.lmstudio_base_url}")
-    print(f"Default model: {settings.lmstudio_model}")
+    print(f"NIM endpoint: {settings.nim_base_url}")
+    print(f"Default model: {settings.nim_model}")
 
 
 @app.exception_handler(Exception)

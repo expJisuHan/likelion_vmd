@@ -15,7 +15,15 @@ const HISTORY_ASSET_DB_NAME = "ax-rnd-vmd-history-assets-v1";
 const HISTORY_ASSET_STORE_NAME = "images";
 const PREVIEW_COLLAPSED_COUNT = 4;
 const HISTORY_PAGE_SIZE = 5;
+// 업로드 전 리사이즈 목표치: Vercel Function 요청 바디 4.5MB 제한을 안전하게 피하기 위한 값.
+// 백엔드가 NIM 호출 전 1280px/180KB로 한 번 더 줄이기 때문에 이보다 훨씬 높은 화질이라 정확도 손실은 없음.
+const UPLOAD_MAX_DIMENSION = 1920;
+const UPLOAD_TARGET_BYTES = 700000;
+const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PDF_MIME_TYPE = "application/pdf";
 let historyAssetDbPromise = null;
+let lastExcelBlobUrl = "";
+let lastPdfBlobUrl = "";
 
 const imageInput = document.getElementById("imageInput");
 const cameraFallbackInput = document.getElementById("cameraFallbackInput");
@@ -348,10 +356,50 @@ function optionsPayload() {
   };
 }
 
+function dataUrlByteLength(dataUrl) {
+  const base64 = dataUrl.split(",")[1] || "";
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function resizeImageDataUrl(dataUrl, maxDimension, targetBytes) {
+  return new Promise((resolve) => {
+    if (dataUrlByteLength(dataUrl) <= targetBytes) {
+      resolve(dataUrl);
+      return;
+    }
+    const source = new Image();
+    source.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        resolve(dataUrl);
+        return;
+      }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      let output = dataUrl;
+      for (const quality of [0.85, 0.75, 0.65, 0.5, 0.35]) {
+        output = canvas.toDataURL("image/jpeg", quality);
+        if (dataUrlByteLength(output) <= targetBytes) {
+          break;
+        }
+      }
+      resolve(output);
+    };
+    source.onerror = () => resolve(dataUrl);
+    source.src = dataUrl;
+  });
+}
+
 function readFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: reader.result });
+    reader.onload = async () => {
+      const dataUrl = await resizeImageDataUrl(reader.result, UPLOAD_MAX_DIMENSION, UPLOAD_TARGET_BYTES);
+      resolve({ name: file.name, type: file.type, dataUrl });
+    };
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
@@ -397,7 +445,7 @@ function stopCamera() {
   cameraPanel.classList.add("hidden");
 }
 
-function capturePhoto() {
+async function capturePhoto() {
   if (!state.cameraStream) {
     return;
   }
@@ -411,10 +459,15 @@ function capturePhoto() {
     return;
   }
   context.drawImage(cameraPreview, 0, 0, width, height);
+  const dataUrl = await resizeImageDataUrl(
+    canvas.toDataURL("image/jpeg", 0.92),
+    UPLOAD_MAX_DIMENSION,
+    UPLOAD_TARGET_BYTES
+  );
   state.images.push({
     name: cameraFileName(),
     type: "image/jpeg",
-    dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+    dataUrl,
   });
   renderPreviews();
 }
@@ -910,6 +963,50 @@ function setupTabs() {
   });
 }
 
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function setDownloadLinkFromBase64(linkEl, base64, mimeType, fileName, prevBlobUrl) {
+  if (!base64) {
+    return prevBlobUrl;
+  }
+  if (prevBlobUrl) {
+    URL.revokeObjectURL(prevBlobUrl);
+  }
+  const url = URL.createObjectURL(base64ToBlob(base64, mimeType));
+  linkEl.href = url;
+  linkEl.setAttribute("download", fileName || "download");
+  linkEl.classList.remove("hidden");
+  return url;
+}
+
+function applyDownloadLinks(payload) {
+  if (payload.excelBase64) {
+    lastExcelBlobUrl = setDownloadLinkFromBase64(downloadLink, payload.excelBase64, EXCEL_MIME_TYPE, payload.excelFileName, lastExcelBlobUrl);
+  } else {
+    const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
+    if (downloadUrl) {
+      downloadLink.href = downloadUrl;
+      downloadLink.classList.remove("hidden");
+    }
+  }
+  if (payload.pdfBase64) {
+    lastPdfBlobUrl = setDownloadLinkFromBase64(pdfDownloadLink, payload.pdfBase64, PDF_MIME_TYPE, payload.pdfFileName, lastPdfBlobUrl);
+  } else {
+    const pdfUrl = payload.pdfDownloadUrl || (payload.pdfPath ? `/api/download?file=${encodeURIComponent(payload.pdfPath)}` : "");
+    pdfDownloadLink.classList.toggle("hidden", !pdfUrl);
+    if (pdfUrl) {
+      pdfDownloadLink.href = pdfUrl;
+    }
+  }
+}
+
 function renderResult(result, payload) {
   document.getElementById("totalScore").textContent = result.total_score ?? "--";
   document.getElementById("grade").textContent = result.grade || "평가 보류";
@@ -936,16 +1033,7 @@ function renderResult(result, payload) {
 
   document.getElementById("finalSummary").textContent = result.final_summary || "최종 요약이 없습니다.";
 
-  const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
-  if (downloadUrl) {
-    downloadLink.href = downloadUrl;
-    downloadLink.classList.remove("hidden");
-  }
-  const pdfUrl = payload.pdfDownloadUrl || (payload.pdfPath ? `/api/download?file=${encodeURIComponent(payload.pdfPath)}` : "");
-  pdfDownloadLink.classList.toggle("hidden", !pdfUrl);
-  if (pdfUrl) {
-    pdfDownloadLink.href = pdfUrl;
-  }
+  applyDownloadLinks(payload);
   jsonPath.textContent = payload.jsonPath ? `JSON: ${payload.jsonPath}` : "";
 }
 
@@ -972,7 +1060,7 @@ async function analyze() {
   pdfDownloadLink.classList.add("hidden");
   jsonPath.textContent = "";
   try {
-    setProgress("이미지를 준비하고 LM Studio로 분석 요청을 보내는 중입니다.");
+    setProgress("이미지를 준비하고 NVIDIA NIM으로 분석 요청을 보내는 중입니다.");
     const payload = await postJson("/api/analyze", { images: state.images, options: optionsPayload() });
     renderResult(payload.result, payload);
     await saveSingleHistory(payload);
@@ -997,18 +1085,10 @@ async function batchAnalyze() {
     setProgress("이미지별 일괄 분석을 시작합니다. 사진 수에 따라 시간이 걸릴 수 있습니다.");
     const payload = await postJson("/api/batch-analyze", { images: state.images, options: optionsPayload() });
     if (payload.results?.length) {
-      renderResult(payload.results[0].result, {
-        downloadUrl: payload.downloadUrl,
-        pdfDownloadUrl: payload.pdfDownloadUrl,
-        jsonPath: payload.results[0].jsonPath,
-      });
+      renderResult(payload.results[0].result, { jsonPath: payload.results[0].jsonPath });
     }
     await saveBatchHistory(payload);
-    const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
-    if (downloadUrl) {
-      downloadLink.href = downloadUrl;
-      downloadLink.classList.remove("hidden");
-    }
+    applyDownloadLinks(payload);
     setProgress(`Excel·PDF 생성 완료 · ${payload.count}개 이미지 · ${payload.elapsedSeconds}s`);
   } catch (error) {
     setProgress(`Excel·PDF 생성 실패: ${error.message}`);

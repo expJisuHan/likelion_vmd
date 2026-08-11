@@ -1,4 +1,4 @@
-"""이미지 분석 오케스트레이션: 프롬프트 구성 -> LM Studio 호출(모델/스키마 fallback) -> 결과 정규화."""
+"""이미지 분석 오케스트레이션: 프롬프트 구성 -> NVIDIA NIM 호출(모델/스키마 fallback) -> 결과 정규화."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import re
 from typing import Any
 
 from ..config import settings
-from ..utils import list_to_lines
-from .lmstudio_client import is_retriable_lmstudio_error, lmstudio_model_candidates, lmstudio_request
+from ..utils import list_to_lines, resize_image_data_url_for_model
+from .nim_client import is_retriable_nim_error, nim_model_candidates, nim_request
 from .prompt import build_user_text, schema_instruction, system_prompt, vmd_json_schema
 from .zones import criteria_for_zone, grade_from_score, normalize_zone
 
@@ -80,6 +80,9 @@ def image_content_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
         data_url = image.get("dataUrl", "")
         if not data_url.startswith("data:image/"):
             raise ValueError(f"Invalid image data for {image.get('name', 'image')}")
+        data_url = resize_image_data_url_for_model(
+            data_url, settings.nim_image_max_dimension, settings.nim_image_max_bytes
+        )
         items.append({"type": "image_url", "image_url": {"url": data_url}})
     return items
 
@@ -103,7 +106,7 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
     if not images:
         raise ValueError("At least one image is required.")
 
-    requested_model = (options.get("modelName") or settings.lmstudio_model).strip()
+    requested_model = (options.get("modelName") or settings.nim_model).strip()
     zone = normalize_zone(options.get("zoneMode"))
     content = [{"type": "text", "text": build_user_text(options, len(images)) + "\n\n" + schema_instruction()}]
     content.extend(image_content_items(images))
@@ -121,7 +124,7 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
     raw = None
     parsed = None
     model = requested_model
-    for candidate_model in lmstudio_model_candidates(requested_model):
+    for candidate_model in nim_model_candidates(requested_model):
         request_variants = [
             {
                 **base_payload,
@@ -135,11 +138,11 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
         ]
         for payload in request_variants:
             try:
-                candidate_raw = lmstudio_request(payload)
+                candidate_raw = nim_request(payload)
             except RuntimeError as exc:
                 message = str(exc)
                 errors.append(f"{candidate_model}: {message}")
-                if "HTTP 400" not in message and not is_retriable_lmstudio_error(message):
+                if "HTTP 400" not in message and not is_retriable_nim_error(message):
                     raise
                 continue
             try:
@@ -155,7 +158,7 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
         if raw is not None:
             break
     if raw is None:
-        raise RuntimeError("LM Studio request failed after model and JSON fallbacks: " + " | ".join(errors))
+        raise RuntimeError("NIM request failed after model and JSON fallbacks: " + " | ".join(errors))
 
     parsed = apply_defaults(parsed, zone)
     parsed["user_selected_zone"] = zone
