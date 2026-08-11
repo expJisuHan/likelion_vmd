@@ -119,10 +119,10 @@ function DetailDrawer({ payload, state, onDock, onCenter }) {
         onClick={() => isDocked && onCenter()}
       >
         <div className="nh-detail-head">
-          <strong>상세 분석 결과</strong>
+          <strong className="nh-detail-title">상세 분석 결과</strong>
           <button
             type="button"
-            className="icon-button"
+            className="icon-button nh-detail-arrow"
             aria-label={isDocked ? '상세 결과 펼치기' : '상세 결과 옆으로 넣기'}
             onClick={(event) => {
               event.stopPropagation();
@@ -239,6 +239,13 @@ export default function NewHomepage({ onAnalyze }) {
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = drawerState === 'center' ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [drawerState]);
 
   const scrollTo = (id) => {
     const el = document.getElementById(id);
