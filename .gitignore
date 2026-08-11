@@ -25,7 +25,7 @@ temp/
 *.swp
 
 # Node/Vite frontend
-app/static/node_modules/
+node_modules/
 app/static/dist/
 .vercel
 
@@ -36,9 +36,12 @@ desktop.ini
 .vscode/
 .idea/
 
-# Codex/local workspace metadata
+# Claude Code / Codex local workspace metadata
+.claude/
 .agents/
 .codex/
+*.tgz
+skills-lock.json
 
 # Generated VMD analysis outputs
 outputs/**
