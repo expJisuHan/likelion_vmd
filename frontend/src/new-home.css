@@ -91,9 +91,96 @@
 
 .field-row.compact { display:flex; gap:12px }
 
+/* 매장 타입/가게 분위기 select, 기준 입력 input, 추가 요청 textarea의 radius를
+   .card(12px)/.btn-outline·.keyword-chips(8px) 등 다른 상자들과 통일합니다. */
+.setup-card select,
+.setup-card input[type="text"],
+.setup-card textarea {
+  border-radius: 8px;
+}
+
 @media (max-width: 980px) {
   .nh-analysis-layout.modern { grid-template-columns: 1fr }
 }
+
+/* 카메라 미리보기 (카메라 버튼 클릭 시에만 나타남) */
+.nh-camera-panel { margin-top: 12px; border-radius: 10px; overflow: hidden; border: 1px solid var(--brand-line); }
+.nh-camera-preview { width: 100%; display: block; background: #000; max-height: 260px; object-fit: cover; }
+
+/* 상세 결과 보기 트리거 */
+.nh-detail-trigger {
+  margin-top: 12px; background: transparent; border: 0; padding: 0;
+  color: #111; font-weight: 700; cursor: pointer; text-decoration: underline;
+}
+
+/* 상세 분석 결과 모달 — 중앙에 떴다가, 화살표/바깥 클릭 시 오른쪽으로 도킹되고
+   도킹된 걸 다시 클릭하면 중앙으로 돌아옴. closed 상태는 첫 분석 전이라 렌더는 되지만 안 보임. */
+.nh-detail-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 17, 17, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+  z-index: 40;
+}
+.nh-detail-overlay.open { opacity: 1; pointer-events: auto; }
+
+.nh-detail-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 420px;
+  max-width: calc(100vw - 40px);
+  max-height: 82vh;
+  background: var(--brand-white);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(17, 17, 17, 0.2);
+  transform: translate(-50%, -50%);
+  transition: left 280ms ease, transform 280ms ease, opacity 280ms ease;
+  opacity: 0;
+  pointer-events: none;
+  z-index: 41;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.nh-detail-modal.center {
+  opacity: 1;
+  pointer-events: auto;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+.nh-detail-modal.docked {
+  opacity: 1;
+  pointer-events: auto;
+  cursor: pointer;
+  left: calc(100% - 440px);
+  transform: translate(0, -50%);
+  box-shadow: -12px 0 32px rgba(17, 17, 17, 0.12);
+}
+
+.nh-detail-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--brand-line);
+  position: sticky;
+  top: 0;
+  background: var(--brand-white);
+}
+.nh-detail-body { padding: 18px 20px 32px; display: flex; flex-direction: column; gap: 18px; }
+.nh-detail-scores { flex-wrap: wrap; }
+.nh-detail-scores .result-card { min-width: 96px; }
+.nh-detail-section h4 { margin: 0 0 8px; font-size: 14px; }
+.nh-criteria-row { padding: 10px 0; border-top: 1px solid var(--brand-line); }
+.nh-criteria-row:first-child { border-top: none; }
+.nh-criteria-row strong { display: block; font-size: 13px; }
+.nh-criteria-row span { color: #6f6a61; font-size: 12px; }
+.nh-criteria-row p { margin: 4px 0 0; font-size: 13px; }
+.nh-detail-downloads { display: flex; gap: 10px; }
+.nh-detail-empty { padding: 20px; color: #6f6a61; }
 
 /* highlight pulse when CTA focuses the section */
 .highlight-pulse {

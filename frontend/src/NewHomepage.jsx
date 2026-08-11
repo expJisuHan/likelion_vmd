@@ -1,5 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import './new-home.css';
+
+const UPLOAD_MAX_DIMENSION = 1920;
+const UPLOAD_TARGET_BYTES = 700000;
+const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+const PDF_MIME_TYPE = 'application/pdf';
 
 function Logo() {
   return (
@@ -12,8 +17,203 @@ function Logo() {
   );
 }
 
+function dataUrlByteLength(dataUrl) {
+  const base64 = dataUrl.split(',')[1] || '';
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function resizeImageDataUrl(dataUrl, maxDimension, targetBytes) {
+  return new Promise((resolve) => {
+    if (dataUrlByteLength(dataUrl) <= targetBytes) {
+      resolve(dataUrl);
+      return;
+    }
+    const source = new Image();
+    source.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext('2d');
+      if (!context) {
+        resolve(dataUrl);
+        return;
+      }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      let output = dataUrl;
+      for (const quality of [0.85, 0.75, 0.65, 0.5, 0.35]) {
+        output = canvas.toDataURL('image/jpeg', quality);
+        if (dataUrlByteLength(output) <= targetBytes) {
+          break;
+        }
+      }
+      resolve(output);
+    };
+    source.onerror = () => resolve(dataUrl);
+    source.src = dataUrl;
+  });
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = await resizeImageDataUrl(reader.result, UPLOAD_MAX_DIMENSION, UPLOAD_TARGET_BYTES);
+      resolve({ name: file.name, dataUrl });
+    };
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
+
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function downloadBase64File(base64, mimeType, fileName) {
+  if (!base64) return;
+  const url = URL.createObjectURL(base64ToBlob(base64, mimeType));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = fileName || 'download';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function postJson(url, body) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok || payload.ok === false) {
+    throw new Error(payload.error || `Request failed: ${response.status}`);
+  }
+  return payload;
+}
+
+function DetailDrawer({ payload, state, onDock, onCenter }) {
+  const result = payload?.result || {};
+  const photo = result.photo_quality || {};
+  const mannequin = result.mannequin || {};
+  const criteria = Array.isArray(result.criteria_evaluations)
+    ? result.criteria_evaluations.filter((item) => item && item.criterion)
+    : [];
+  const obstacles = Array.isArray(result.obstacles) ? result.obstacles : [];
+  const isDocked = state === 'docked';
+
+  return (
+    <>
+      <div className={`nh-detail-overlay${state === 'center' ? ' open' : ''}`} onClick={onDock} />
+      <aside
+        className={`nh-detail-modal${state !== 'closed' ? ` ${state}` : ''}`}
+        aria-hidden={state === 'closed'}
+        role="dialog"
+        aria-label="상세 분석 결과"
+        onClick={() => isDocked && onCenter()}
+      >
+        <div className="nh-detail-head">
+          <strong>상세 분석 결과</strong>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label={isDocked ? '상세 결과 펼치기' : '상세 결과 옆으로 넣기'}
+            onClick={(event) => {
+              event.stopPropagation();
+              isDocked ? onCenter() : onDock();
+            }}
+          >
+            {isDocked ? '←' : '→'}
+          </button>
+        </div>
+        {payload ? (
+          <div className="nh-detail-body">
+            <div className="result-cards nh-detail-scores">
+              <div className="result-card"><div className="label">Total Score</div><div className="value">{result.total_score ?? '--'}</div></div>
+              <div className="result-card"><div className="label">Zone</div><div className="value">{result.user_selected_zone || '--'} → {result.ai_detected_zone || 'UNKNOWN'}</div></div>
+              <div className="result-card"><div className="label">Photo Quality</div><div className="value">{photo.score ?? '--'}</div></div>
+              <div className="result-card"><div className="label">Mannequin</div><div className="value">{mannequin.exists ? '있음' : '없음'}</div></div>
+            </div>
+
+            <section className="nh-detail-section">
+              <h4>영역별 평가항목</h4>
+              {criteria.length ? (
+                criteria.map((item) => (
+                  <div className="nh-criteria-row" key={item.criterion}>
+                    <strong>{item.criterion}</strong>
+                    <span>{item.score ?? '--'}점</span>
+                    <p>{item.suggestion || item.evidence || '내용 없음'}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="body-text">평가 항목이 없습니다.</p>
+              )}
+            </section>
+
+            <section className="nh-detail-section">
+              <h4>잘된 점</h4>
+              <ul>{(result.positive_points || []).map((point, i) => <li key={i}>{point}</li>)}</ul>
+            </section>
+            <section className="nh-detail-section">
+              <h4>비판적 문제점</h4>
+              <ul>{(result.critical_issues || []).map((point, i) => <li key={i}>{point}</li>)}</ul>
+            </section>
+            <section className="nh-detail-section">
+              <h4>개선 제안</h4>
+              <ul>{(result.improvement_suggestions || []).map((point, i) => <li key={i}>{point}</li>)}</ul>
+            </section>
+            <section className="nh-detail-section">
+              <h4>감지된 방해물</h4>
+              {obstacles.length ? (
+                <div className="pill-list">
+                  {obstacles.map((item, i) => (
+                    <span className="pill" key={i}>{item.object || 'object'} · {item.location || ''}</span>
+                  ))}
+                </div>
+              ) : (
+                <p className="body-text">감지된 방해물이 없습니다.</p>
+              )}
+            </section>
+            <section className="nh-detail-section">
+              <h4>최종 요약</h4>
+              <p className="body-text">{result.final_summary || '요약이 없습니다.'}</p>
+            </section>
+
+            <div className="nh-detail-downloads">
+              {payload.excelBase64 && (
+                <button
+                  type="button"
+                  className="btn-outline"
+                  onClick={() => downloadBase64File(payload.excelBase64, EXCEL_MIME_TYPE, payload.excelFileName)}
+                >Excel 다운로드</button>
+              )}
+              {payload.pdfBase64 && (
+                <button
+                  type="button"
+                  className="btn-outline"
+                  onClick={() => downloadBase64File(payload.pdfBase64, PDF_MIME_TYPE, payload.pdfFileName)}
+                >PDF 저장</button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="body-text nh-detail-empty">아직 분석 결과가 없습니다.</p>
+        )}
+      </aside>
+    </>
+  );
+}
+
 export default function NewHomepage({ onAnalyze }) {
   const [showZoneInfo, setShowZoneInfo] = useState(false);
+  const [previewImages, setPreviewImages] = useState([]);
+  const [selectedZone, setSelectedZone] = useState('VP');
   const [newCriterion, setNewCriterion] = useState('');
   const [validationMessage, setValidationMessage] = useState('');
   const [criteriaItems, setCriteriaItems] = useState([
@@ -22,6 +222,23 @@ export default function NewHomepage({ onAnalyze }) {
     { label: '브랜드 적합성', checked: true },
     { label: '사진 품질', checked: true },
   ]);
+
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [quickResult, setQuickResult] = useState(null);
+  const [detailPayload, setDetailPayload] = useState(null);
+  const [drawerState, setDrawerState] = useState('closed'); // 'closed' | 'center' | 'docked'
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  const videoRef = useRef(null);
+  const streamRef = useRef(null);
+  const storeTypeRef = useRef(null);
+  const toneRef = useRef(null);
+  const extraCriteriaRef = useRef(null);
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
 
   const scrollTo = (id) => {
     const el = document.getElementById(id);
@@ -36,6 +253,17 @@ export default function NewHomepage({ onAnalyze }) {
       el.classList.add('highlight-pulse');
       setTimeout(() => el.classList.remove('highlight-pulse'), 1500);
     }
+  };
+
+  const handleImageInputChange = async (event) => {
+    const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
+    const next = await Promise.all(files.map(readFileAsDataUrl));
+    setPreviewImages((prev) => [...prev, ...next]);
+    event.target.value = '';
+  };
+
+  const removePreviewImage = (index) => {
+    setPreviewImages((prev) => prev.filter((_, i) => i !== index));
   };
 
   const toggleCriterion = (label) => {
@@ -54,6 +282,124 @@ export default function NewHomepage({ onAnalyze }) {
     setCriteriaItems((prev) => [...prev, { label: trimmed, checked: true }]);
     setNewCriterion('');
     setValidationMessage('');
+  };
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      document.getElementById('cameraFallbackInput')?.click();
+      return;
+    }
+    try {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setIsCameraOpen(true);
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+    } catch (error) {
+      setStatusMessage(`카메라를 열 수 없습니다: ${error.message}`);
+    }
+  };
+
+  const stopCamera = () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+    setIsCameraOpen(false);
+  };
+
+  const capturePhoto = async () => {
+    if (!streamRef.current || !videoRef.current) {
+      return;
+    }
+    const video = videoRef.current;
+    const width = video.videoWidth || 1280;
+    const height = video.videoHeight || 720;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      return;
+    }
+    context.drawImage(video, 0, 0, width, height);
+    const dataUrl = await resizeImageDataUrl(
+      canvas.toDataURL('image/jpeg', 0.92),
+      UPLOAD_MAX_DIMENSION,
+      UPLOAD_TARGET_BYTES
+    );
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    setPreviewImages((prev) => [...prev, { name: `camera-${stamp}.jpg`, dataUrl }]);
+  };
+
+  const buildOptions = () => ({
+    zoneMode: selectedZone,
+    storeType: storeTypeRef.current?.value || 'UNKNOWN',
+    tone: toneRef.current?.value || 'SOFT_CRITICAL',
+    criteria: criteriaItems.filter((item) => item.checked).map((item) => item.label),
+    focusKeywords: [],
+    extraCriteria: extraCriteriaRef.current?.value.trim() || '',
+    temperature: 0.2,
+    maxTokens: 2200,
+  });
+
+  const applyQuickResult = (result) => {
+    const photo = result?.photo_quality || {};
+    setQuickResult({
+      zone: result?.user_selected_zone || selectedZone,
+      score: result?.total_score ?? '--',
+      photoQuality: photo.needs_retake ? '재촬영 권장' : (photo.score != null ? `${photo.score}점` : '--'),
+    });
+  };
+
+  const runAnalyze = async () => {
+    if (!previewImages.length) {
+      setStatusMessage('분석할 사진을 먼저 추가하세요.');
+      return;
+    }
+    setIsAnalyzing(true);
+    setStatusMessage('분석 중입니다...');
+    try {
+      const payload = await postJson('/api/analyze', { images: previewImages, options: buildOptions() });
+      applyQuickResult(payload.result);
+      setDetailPayload(payload);
+      setStatusMessage(`분석 완료 · ${payload.elapsedSeconds}s`);
+      setDrawerState('center');
+    } catch (error) {
+      setStatusMessage(`분석 실패: ${error.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const runBatchAnalyze = async () => {
+    if (!previewImages.length) {
+      setStatusMessage('엑셀로 정리할 사진을 먼저 추가하세요.');
+      return;
+    }
+    setIsAnalyzing(true);
+    setStatusMessage('이미지별 일괄 분석 중입니다...');
+    try {
+      const payload = await postJson('/api/batch-analyze', { images: previewImages, options: buildOptions() });
+      const firstResult = payload.results?.[0]?.result;
+      if (firstResult) {
+        applyQuickResult(firstResult);
+      }
+      setDetailPayload({ ...payload, result: firstResult });
+      setStatusMessage(`Excel·PDF 생성 완료 · ${payload.count}개 이미지 · ${payload.elapsedSeconds}s`);
+      setDrawerState('center');
+    } catch (error) {
+      setStatusMessage(`Excel·PDF 생성 실패: ${error.message}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
   };
 
   return (
@@ -91,7 +437,7 @@ export default function NewHomepage({ onAnalyze }) {
                 <span className="muted">이미지를 넣고 빠르게 분석해보세요</span>
               </div>
             <label className="dropzone" htmlFor="imageInput">
-              <input id="imageInput" type="file" accept="image/*" multiple />
+              <input id="imageInput" type="file" accept="image/*" multiple onChange={handleImageInputChange} />
               <div className="drop-inner">
                 <div className="drop-icon">📷</div>
                 <div>
@@ -100,27 +446,43 @@ export default function NewHomepage({ onAnalyze }) {
                 </div>
               </div>
             </label>
-            <input id="cameraFallbackInput" className="visually-hidden" type="file" accept="image/*" capture="environment" />
+            <input id="cameraFallbackInput" className="visually-hidden" type="file" accept="image/*" capture="environment" onChange={handleImageInputChange} />
 
-            <div className="thumb-strip" id="previewGrid" aria-label="업로드 이미지 미리보기"></div>
+            <div className="thumb-strip" id="previewGrid" aria-label="업로드 이미지 미리보기">
+              {previewImages.map((image, index) => (
+                <div className="preview-card" key={`${image.name}-${index}`}>
+                  <img src={image.dataUrl} alt={image.name} />
+                  <button type="button" aria-label={`${image.name} 삭제`} onClick={() => removePreviewImage(index)}>×</button>
+                </div>
+              ))}
+            </div>
 
             <div className="upload-actions">
-              <button className="btn-outline" id="startCameraBtn" type="button">카메라</button>
-              <button className="btn-ghost" id="capturePhotoBtn" type="button">촬영</button>
-              <button className="btn-ghost" id="stopCameraBtn" type="button">중지</button>
+              <button className="btn-outline" id="startCameraBtn" type="button" onClick={startCamera}>카메라</button>
+              <button className="btn-ghost" id="capturePhotoBtn" type="button" onClick={capturePhoto}>촬영</button>
+              <button className="btn-ghost" id="stopCameraBtn" type="button" onClick={stopCamera}>중지</button>
             </div>
+
+            {isCameraOpen && (
+              <div className="nh-camera-panel">
+                <video ref={videoRef} autoPlay playsInline muted className="nh-camera-preview" />
+              </div>
+            )}
           </div>
 
           <div className="card quick-results">
             <div className="card-head">
               <strong>요약</strong>
-              <span className="muted">모델의 예측 요약</span>
+              <span className="muted">{statusMessage || '모델의 예측 요약'}</span>
             </div>
             <div className="result-cards">
-              <div className="result-card"><div className="label">존</div><div className="value">VP <span className="muted">(예시)</span></div></div>
-              <div className="result-card"><div className="label">점수</div><div className="value">82 <span className="muted">(예시)</span></div></div>
-              <div className="result-card"><div className="label">사진 품질</div><div className="value">양호 <span className="muted">(예시)</span></div></div>
+              <div className="result-card"><div className="label">존</div><div className="value">{quickResult ? quickResult.zone : <>VP <span className="muted">(예시)</span></>}</div></div>
+              <div className="result-card"><div className="label">점수</div><div className="value">{quickResult ? quickResult.score : <>82 <span className="muted">(예시)</span></>}</div></div>
+              <div className="result-card"><div className="label">사진 품질</div><div className="value">{quickResult ? quickResult.photoQuality : <>양호 <span className="muted">(예시)</span></>}</div></div>
             </div>
+            {detailPayload && (
+              <button type="button" className="nh-detail-trigger" onClick={() => setDrawerState('center')}>상세 결과 보기 →</button>
+            )}
           </div>
         </div>
 
@@ -150,15 +512,30 @@ export default function NewHomepage({ onAnalyze }) {
             )}
 
             <div className="zone-row">
-              <button className="zone-pill" data-value="VP">VP</button>
-              <button className="zone-pill" data-value="PP">PP</button>
-              <button className="zone-pill" data-value="IP">IP</button>
+              <button
+                type="button"
+                className={`zone-pill${selectedZone === 'VP' ? ' active' : ''}`}
+                data-value="VP"
+                onClick={() => setSelectedZone('VP')}
+              >VP</button>
+              <button
+                type="button"
+                className={`zone-pill${selectedZone === 'PP' ? ' active' : ''}`}
+                data-value="PP"
+                onClick={() => setSelectedZone('PP')}
+              >PP</button>
+              <button
+                type="button"
+                className={`zone-pill${selectedZone === 'IP' ? ' active' : ''}`}
+                data-value="IP"
+                onClick={() => setSelectedZone('IP')}
+              >IP</button>
             </div>
 
             <div className="field-row compact">
               <div className="field">
                 <label htmlFor="storeType">매장 타입</label>
-                <select id="storeType">
+                <select id="storeType" ref={storeTypeRef}>
                   <option value="UNKNOWN">모름</option>
                   <option value="SINGLE_BRAND">단일 브랜드</option>
                   <option value="MULTI_BRAND">편집샵/다중 브랜드</option>
@@ -166,7 +543,7 @@ export default function NewHomepage({ onAnalyze }) {
               </div>
               <div className="field">
                 <label htmlFor="tone">가게 분위기</label>
-                <select id="tone">
+                <select id="tone" ref={toneRef}>
                   <option value="SOFT_CRITICAL">부드러운 비판형</option>
                   <option value="BALANCED">균형형</option>
                   <option value="CRITICAL">비판 강화형</option>
@@ -216,12 +593,16 @@ export default function NewHomepage({ onAnalyze }) {
 
             <div className="field">
               <label htmlFor="extraCriteria">추가 요청</label>
-              <textarea id="extraCriteria" rows="3" placeholder="예: 머리 있는 마네킹 중심으로 봐주세요."></textarea>
+              <textarea id="extraCriteria" rows="3" placeholder="예: 머리 있는 마네킹 중심으로 봐주세요." ref={extraCriteriaRef}></textarea>
             </div>
 
             <div className="actions modern-actions">
-              <button className="primary" id="analyzeBtn" type="button">분석 시작</button>
-              <button className="secondary" id="batchBtn" type="button">엑셀 추출</button>
+              <button className="primary" id="analyzeBtn" type="button" onClick={runAnalyze} disabled={isAnalyzing}>
+                {isAnalyzing ? '분석 중...' : '분석 시작'}
+              </button>
+              <button className="secondary" id="batchBtn" type="button" onClick={runBatchAnalyze} disabled={isAnalyzing}>
+                {isAnalyzing ? '처리 중...' : '엑셀 추출'}
+              </button>
             </div>
           </div>
         </aside>
@@ -257,6 +638,13 @@ export default function NewHomepage({ onAnalyze }) {
           <li>시연용 데모나 내부 검토 자료로 사용</li>
         </ul>
       </section>
+
+      <DetailDrawer
+        payload={detailPayload}
+        state={drawerState}
+        onDock={() => setDrawerState('docked')}
+        onCenter={() => setDrawerState('center')}
+      />
     </div>
   );
 }
