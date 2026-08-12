@@ -51,6 +51,15 @@ class Settings:
         )
     )
 
+    # --- 분석 엔드포인트 오남용 방어 ---
+    # 비워두면 X-App-Key 검사를 건너뜁니다 (기본값: 비활성화).
+    app_access_key: str = os.environ.get("APP_ACCESS_KEY", "")
+    # IP당 윈도우 내 허용 요청 수. 0 이하로 설정하면 레이트리밋을 끕니다.
+    rate_limit_requests: int = int(os.environ.get("RATE_LIMIT_REQUESTS", "12"))
+    rate_limit_window_seconds: int = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
+    max_images_per_request: int = int(os.environ.get("MAX_IMAGES_PER_REQUEST", "20"))
+    max_image_bytes: int = int(os.environ.get("MAX_IMAGE_BYTES", "8000000"))
+
     # --- Paths ---
     # Vercel Functions는 배포 파일시스템이 읽기 전용이라 /tmp에만 쓸 수 있습니다.
     # Vercel은 함수 환경에 VERCEL=1을 자동으로 주입하므로 이를 기준으로 출력 경로를 분기합니다.

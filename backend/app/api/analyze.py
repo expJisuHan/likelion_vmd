@@ -6,17 +6,18 @@ import urllib.parse
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..export.excel_export import save_excel
 from ..export.pdf_export import save_pdf
 from ..schemas import AnalyzeRequest, BatchAnalyzeRequest
 from ..services.analysis import analyze_images
 from ..services.records import make_record, record_zone
+from ..services.request_guard import enforce_app_key, enforce_payload_limits, enforce_rate_limit
 from ..services.zones import normalize_zone
 from ..utils import friendly_error_message, safe_file_name
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(enforce_app_key), Depends(enforce_rate_limit)])
 
 
 def _b64(content: bytes) -> str:
@@ -63,6 +64,7 @@ def api_analyze(payload: AnalyzeRequest) -> Dict[str, Any]:
     options = payload.options.to_dict()
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required.")
+    enforce_payload_limits(images)
 
     started = time.time()
     try:
@@ -100,6 +102,7 @@ def api_batch_analyze(payload: BatchAnalyzeRequest) -> Dict[str, Any]:
     options = payload.options.to_dict()
     if not images:
         raise HTTPException(status_code=400, detail="At least one image is required.")
+    enforce_payload_limits(images)
 
     records = []
     batch_results = []

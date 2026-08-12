@@ -86,9 +86,14 @@ function downloadBase64File(base64, mimeType, fileName) {
 }
 
 async function postJson(url, body) {
+  const headers = { 'Content-Type': 'application/json' };
+  const appKey = import.meta.env.VITE_APP_ACCESS_KEY;
+  if (appKey) {
+    headers['X-App-Key'] = appKey;
+  }
   const response = await fetch(url, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   });
   const payload = await response.json().catch(() => ({}));
