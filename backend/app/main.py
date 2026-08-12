@@ -44,8 +44,15 @@ def _on_startup() -> None:
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    # 원본 예외 메시지/스택트레이스는 서버 로그에만 남깁니다. 클라이언트에는
+    # 내부 구현 정보(파일 경로, 라이브러리 에러 문구 등)가 노출되지 않도록
+    # friendly_error_message로 정제된 메시지만 돌려주고, DEBUG=true일 때만 원본을 곁들입니다.
+    print(f"Unhandled exception on {request.method} {request.url.path}:")
     traceback.print_exc()
-    return JSONResponse(status_code=500, content={"ok": False, "error": friendly_error_message(exc), "detail": str(exc)})
+    content: dict[str, object] = {"ok": False, "error": friendly_error_message(exc)}
+    if settings.debug:
+        content["detail"] = str(exc)
+    return JSONResponse(status_code=500, content=content)
 
 
 # api/* 라우트를 먼저 등록하고, 정적 파일 서빙(static)은 반드시 마지막에 등록합니다.

@@ -43,6 +43,9 @@ class Settings:
     host: str = os.environ.get("HOST", "127.0.0.1")
     port: int = int(os.environ.get("PORT", "8000"))
     reload: bool = os.environ.get("RELOAD", "false").lower() in {"1", "true", "yes"}
+    # true면 처리되지 않은 예외의 원본 메시지를 응답에 그대로 포함합니다 (로컬 디버깅용).
+    # 배포본에서는 기본값(false)을 유지해 내부 구현 정보가 노출되지 않도록 합니다.
+    debug: bool = os.environ.get("DEBUG", "false").lower() in {"1", "true", "yes"}
 
     # --- CORS (프론트를 별도 origin/포트에서 띄울 때 사용) ---
     cors_origins: list[str] = field(
@@ -50,6 +53,20 @@ class Settings:
             os.environ.get("CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000")
         )
     )
+
+    # --- 분석 엔드포인트 오남용 방어 ---
+    # 비워두면 X-App-Key 검사를 건너뜁니다 (기본값: 비활성화).
+    app_access_key: str = os.environ.get("APP_ACCESS_KEY", "")
+    # IP당 윈도우 내 허용 요청 수. 0 이하로 설정하면 레이트리밋을 끕니다.
+    rate_limit_requests: int = int(os.environ.get("RATE_LIMIT_REQUESTS", "12"))
+    rate_limit_window_seconds: int = int(os.environ.get("RATE_LIMIT_WINDOW_SECONDS", "60"))
+    max_images_per_request: int = int(os.environ.get("MAX_IMAGES_PER_REQUEST", "20"))
+    max_image_bytes: int = int(os.environ.get("MAX_IMAGE_BYTES", "8000000"))
+
+    # --- 동일 요청(이미지+옵션) 분석 결과 캐시 ---
+    analysis_cache_enabled: bool = os.environ.get("ANALYSIS_CACHE_ENABLED", "true").lower() in {"1", "true", "yes"}
+    analysis_cache_ttl_seconds: int = int(os.environ.get("ANALYSIS_CACHE_TTL_SECONDS", "1800"))
+    analysis_cache_max_entries: int = int(os.environ.get("ANALYSIS_CACHE_MAX_ENTRIES", "200"))
 
     # --- Paths ---
     # Vercel Functions는 배포 파일시스템이 읽기 전용이라 /tmp에만 쓸 수 있습니다.
