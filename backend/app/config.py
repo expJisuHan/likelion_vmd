@@ -43,6 +43,9 @@ class Settings:
     host: str = os.environ.get("HOST", "127.0.0.1")
     port: int = int(os.environ.get("PORT", "8000"))
     reload: bool = os.environ.get("RELOAD", "false").lower() in {"1", "true", "yes"}
+    # true면 처리되지 않은 예외의 원본 메시지를 응답에 그대로 포함합니다 (로컬 디버깅용).
+    # 배포본에서는 기본값(false)을 유지해 내부 구현 정보가 노출되지 않도록 합니다.
+    debug: bool = os.environ.get("DEBUG", "false").lower() in {"1", "true", "yes"}
 
     # --- CORS (프론트를 별도 origin/포트에서 띄울 때 사용) ---
     cors_origins: list[str] = field(
