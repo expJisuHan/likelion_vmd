@@ -68,22 +68,35 @@ def format_elapsed(seconds: float | int | None) -> str:
 
 
 def friendly_error_message(exc: Exception) -> str:
+    """NIM 관련 예외를 사람이 읽을 메시지로 바꿉니다.
+
+    각 메시지 앞에 [NIM_XXX] 코드를 붙여서, 서로 다른 원인이 뭉뚱그려지지 않고
+    화면/응답 body만 보고도 정확히 어느 분기를 탔는지 구분할 수 있게 합니다.
+    (예전엔 "Authorization"/"Bearer" 단어만 보고 401/403이 아닌 다른 에러까지
+    전부 "인증 실패"로 잘못 뭉뚱그려지는 문제가 있었습니다.)
+    """
     message = str(exc)
-    if (
-        "NIM HTTP 401" in message
-        or "NIM HTTP 403" in message
-        or ("Authorization" in message and "Bearer" in message)
-    ):
-        # NIM 게이트웨이는 API 키가 비어있거나 잘못됐을 때 401 대신
-        # "Missing request extension: ...Authorization<Bearer>..." 같은 500을 돌려줄 때가 있습니다.
-        return "NVIDIA NIM 인증에 실패했습니다. backend/.env의 NIM_API_KEY가 올바른지 확인해 주세요."
+
+    # 키가 아예 비어있을 때 NIM 게이트웨이가 401 대신 이 구체적인 문구로 500을 돌려줍니다.
+    if "Missing request extension" in message and "Authorization" in message:
+        return "[NIM_AUTH_MISSING_KEY] NVIDIA NIM API 키가 비어있습니다. backend/.env(또는 Vercel 환경변수)의 NIM_API_KEY를 확인해 주세요."
+    if "NIM HTTP 401" in message:
+        return "[NIM_AUTH_401] NVIDIA NIM 인증에 실패했습니다 (401). NIM_API_KEY가 올바른지 확인해 주세요."
+    if "NIM HTTP 403" in message:
+        return "[NIM_AUTH_403] NVIDIA NIM 접근이 거부됐습니다 (403). 이 키로 해당 모델을 쓸 권한이 있는지 확인해 주세요."
     if "NIM HTTP 429" in message:
-        return "NVIDIA NIM 요청 한도(rate limit)에 도달했습니다. 잠시 후 다시 시도해 주세요."
+        return "[NIM_RATE_LIMIT] NVIDIA NIM 요청 한도(rate limit)에 도달했습니다 (429). 잠시 후 다시 시도해 주세요."
     if "NIM HTTP 400" in message:
-        return "NVIDIA NIM이 분석 요청을 거절했습니다. 모델명이 정확한지, 현재 모델이 이미지 입력을 지원하는지 확인해 주세요."
+        return "[NIM_BAD_REQUEST] NVIDIA NIM이 분석 요청을 거절했습니다 (400). 모델명이 정확한지, 현재 모델이 이미지 입력을 지원하는지 확인해 주세요."
+    if "NIM HTTP 500" in message or "NIM HTTP 502" in message or "NIM HTTP 503" in message:
+        return f"[NIM_SERVER_ERROR] NVIDIA NIM 서버 쪽 오류입니다. 잠시 후 다시 시도해 주세요. 원본 메시지: {message}"
+    if "timed out" in message.lower() or "timeout" in message.lower():
+        return "[NIM_TIMEOUT] NVIDIA NIM 응답이 시간 내에 오지 않았습니다. 네트워크 상태나 NIM_TIMEOUT_SECONDS 설정을 확인해 주세요."
     if "Connection refused" in message or "연결을 거부" in message or "WinError 10061" in message:
-        return "NVIDIA NIM 서버에 연결할 수 없습니다. 네트워크 연결과 NIM_BASE_URL 설정을 확인해 주세요."
-    return message
+        return "[NIM_CONNECTION_FAILED] NVIDIA NIM 서버에 연결할 수 없습니다. 네트워크 연결과 NIM_BASE_URL 설정을 확인해 주세요."
+    # 위 어느 패턴에도 안 걸리면 원본 메시지를 그대로 노출합니다 — 잘못 뭉뚱그려서
+    # 실제 원인을 가리는 것보다, 낯선 메시지라도 있는 그대로 보여주는 쪽이 디버깅에 낫습니다.
+    return f"[NIM_UNKNOWN] {message}"
 
 
 # --- Image helpers (data URL <-> raw bytes, EXIF orientation, thumbnails) ---
