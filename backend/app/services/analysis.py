@@ -8,6 +8,7 @@ from typing import Any
 
 from ..config import settings
 from ..utils import list_to_lines, resize_image_data_url_for_model
+from .analysis_cache import build_cache_key, get_cached_result, store_result
 from .nim_client import is_retriable_nim_error, nim_model_candidates, nim_request
 from .prompt import build_user_text, schema_instruction, system_prompt, vmd_json_schema
 from .zones import criteria_for_zone, grade_from_score, normalize_zone
@@ -106,6 +107,11 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
     if not images:
         raise ValueError("At least one image is required.")
 
+    cache_key = build_cache_key(images, options)
+    cached = get_cached_result(cache_key)
+    if cached is not None:
+        return cached
+
     requested_model = (options.get("modelName") or settings.nim_model).strip()
     zone = normalize_zone(options.get("zoneMode"))
     content = [{"type": "text", "text": build_user_text(options, len(images)) + "\n\n" + schema_instruction()}]
@@ -163,4 +169,6 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
     parsed = apply_defaults(parsed, zone)
     parsed["user_selected_zone"] = zone
     parsed["grade"] = parsed.get("grade") or grade_from_score(parsed.get("total_score"))
-    return {"result": parsed, "raw": raw, "model": model}
+    result = {"result": parsed, "raw": raw, "model": model}
+    store_result(cache_key, result)
+    return result

@@ -63,6 +63,11 @@ class Settings:
     max_images_per_request: int = int(os.environ.get("MAX_IMAGES_PER_REQUEST", "20"))
     max_image_bytes: int = int(os.environ.get("MAX_IMAGE_BYTES", "8000000"))
 
+    # --- 동일 요청(이미지+옵션) 분석 결과 캐시 ---
+    analysis_cache_enabled: bool = os.environ.get("ANALYSIS_CACHE_ENABLED", "true").lower() in {"1", "true", "yes"}
+    analysis_cache_ttl_seconds: int = int(os.environ.get("ANALYSIS_CACHE_TTL_SECONDS", "1800"))
+    analysis_cache_max_entries: int = int(os.environ.get("ANALYSIS_CACHE_MAX_ENTRIES", "200"))
+
     # --- Paths ---
     # Vercel Functions는 배포 파일시스템이 읽기 전용이라 /tmp에만 쓸 수 있습니다.
     # Vercel은 함수 환경에 VERCEL=1을 자동으로 주입하므로 이를 기준으로 출력 경로를 분기합니다.
