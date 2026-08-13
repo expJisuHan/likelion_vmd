@@ -9,6 +9,7 @@ FastAPI 전환과 함께 환경변수를 한 곳(Settings)에서만 읽도록 �
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -25,11 +26,20 @@ def _split_csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 
+def _clean_secret(value: str) -> str:
+    """Vercel 환경변수 Value 칸에 'Key: ...'/'Value: ...' 라벨까지 통째로 붙여넣는
+    실수를 방어합니다. 앞의 라벨과 감싼 따옴표, 앞뒤 공백을 제거합니다.
+    """
+    cleaned = value.strip().strip("'\"").strip()
+    cleaned = re.sub(r"^(key|value)\s*:\s*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip().strip("'\"").strip()
+
+
 @dataclass(frozen=True)
 class Settings:
     # --- NVIDIA NIM ---
     nim_base_url: str = os.environ.get("NIM_BASE_URL", "https://integrate.api.nvidia.com/v1").rstrip("/")
-    nim_api_key: str = os.environ.get("NIM_API_KEY", "")
+    nim_api_key: str = _clean_secret(os.environ.get("NIM_API_KEY", ""))
     nim_model: str = os.environ.get("NIM_MODEL", "meta/llama-3.2-11b-vision-instruct")
     nim_fallback_models: list[str] = field(
         default_factory=lambda: _split_csv(os.environ.get("NIM_FALLBACK_MODELS", ""))
