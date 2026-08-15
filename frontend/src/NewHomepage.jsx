@@ -359,7 +359,7 @@ export default function NewHomepage({ onAnalyze }) {
     focusKeywords: [],
     extraCriteria: extraCriteriaRef.current?.value.trim() || '',
     temperature: 0.2,
-    maxTokens: 2200,
+    maxTokens: 6000,
   });
 
   const applyQuickResult = (result) => {
