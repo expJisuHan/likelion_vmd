@@ -358,7 +358,7 @@ function optionsPayload() {
     focusKeywords: state.focusKeywords,
     extraCriteria: document.getElementById("extraCriteria").value.trim(),
     temperature: 0.2,
-    maxTokens: 2200,
+    maxTokens: 6000,
   };
 }
 

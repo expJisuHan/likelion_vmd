@@ -44,7 +44,7 @@ class Settings:
     nim_fallback_models: list[str] = field(
         default_factory=lambda: _split_csv(os.environ.get("NIM_FALLBACK_MODELS", ""))
     )
-    nim_timeout_seconds: int = int(os.environ.get("NIM_TIMEOUT_SECONDS", "180"))
+    nim_timeout_seconds: int = int(os.environ.get("NIM_TIMEOUT_SECONDS", "150"))
     # 요청에 직접 담아 보내는 base64 이미지 용량 제한 (NIM 호스팅 VLM 엔드포인트 기준, 이보다 크면 리사이즈)
     nim_image_max_bytes: int = int(os.environ.get("NIM_IMAGE_MAX_BYTES", "180000"))
     nim_image_max_dimension: int = int(os.environ.get("NIM_IMAGE_MAX_DIMENSION", "1280"))

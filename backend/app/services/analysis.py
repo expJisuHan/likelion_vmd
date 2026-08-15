@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from typing import Any
 
 from ..config import settings
@@ -12,6 +13,89 @@ from .analysis_cache import build_cache_key, get_cached_result, store_result
 from .nim_client import is_retriable_nim_error, nim_model_candidates, nim_request
 from .prompt import build_user_text, schema_instruction, system_prompt, vmd_json_schema
 from .zones import criteria_for_zone, grade_from_score, normalize_zone
+
+# 프롬프트에서 번호 접두어를 쓰지 말라고 지시해도 작은 모델은 "강점 1.", "문제 2." 같은
+# 한국어 목록 습관을 완전히 버리지 않는 경우가 있어, 응답을 받은 뒤 한 번 더 걷어냅니다.
+_ORDINAL_PREFIX_RE = re.compile(r"^(?:강점|문제점?|이슈|개선(?:안|점)?)?\s*\d+\s*[.).:]\s*")
+
+# prompt.py에서 예시 JSON을 없애 "베낄 대상"을 아예 제거했지만, 그래도 모델이 서로 다른
+# 항목에 같은 문장을 반복하거나(예: evidence/issue/suggestion을 전부 동일 문장으로 채움)
+# 근거 없이 한두 단어짜리 자리표시자만 채워 넣는 경우가 남을 수 있어 응답 내용을 한 번 더
+# 검증합니다. 문제가 발견되면 그 문제를 구체적으로 지적하는 메시지를 덧붙이고 temperature를
+# 올려 최대 _MAX_CONTENT_RETRIES회 재요청합니다.
+_MAX_CONTENT_RETRIES = 1
+_MIN_SENTENCE_LENGTH = 8
+
+# Vercel Hobby 플랜 함수 상한(300초)은 요청 하나 전체(이미지 리사이즈 + NIM 호출 + 이후
+# 엑셀/PDF 생성)에 적용됩니다. 콘텐츠 품질 재시도가 완전히 새로운 생성 호출을 한 번 더
+# 만들기 때문에, 1차 호출이 느리게 성공하면 2차 호출이 상한을 그냥 넘길 수 있습니다.
+# 그래서 이 함수 진입 시각부터 흐른 시간을 추적해 예산이 부족하면 재시도를 건너뛰고,
+# 개별 NIM 호출의 timeout도 남은 예산을 넘지 않도록 잘라서 보냅니다.
+_TOTAL_TIME_BUDGET_SECONDS = 220
+_MIN_ATTEMPT_SECONDS = 30
+
+
+def _strip_ordinal_prefix(text: Any) -> Any:
+    if not isinstance(text, str):
+        return text
+    return _ORDINAL_PREFIX_RE.sub("", text, count=1).strip()
+
+
+def _normalize_for_dup_check(text: Any) -> str:
+    if not isinstance(text, str):
+        return ""
+    return re.sub(r"\s+", "", text).strip()
+
+
+def _find_content_problems(parsed: dict[str, Any]) -> list[str]:
+    problems: list[str] = []
+    seen_sentences: dict[str, str] = {}
+
+    def check_list(field: str, min_len: int = _MIN_SENTENCE_LENGTH) -> None:
+        items = parsed.get(field)
+        if not isinstance(items, list):
+            return
+        for item in items:
+            if not isinstance(item, str):
+                continue
+            text = item.strip()
+            if not text:
+                continue
+            if len(text) < min_len:
+                problems.append(f"{field} 항목이 너무 짧거나 구체적이지 않습니다: '{text}'")
+                continue
+            key = _normalize_for_dup_check(text)
+            if key in seen_sentences:
+                problems.append(f"'{text}' 문장이 {seen_sentences[key]}와(과) {field}에서 중복됩니다.")
+            else:
+                seen_sentences[key] = field
+
+    check_list("positive_points")
+    check_list("critical_issues")
+    check_list("improvement_suggestions")
+
+    criteria = parsed.get("criteria_evaluations")
+    if isinstance(criteria, list):
+        for entry in criteria:
+            if not isinstance(entry, dict):
+                continue
+            evidence = _normalize_for_dup_check(entry.get("evidence"))
+            issue = _normalize_for_dup_check(entry.get("issue"))
+            suggestion = _normalize_for_dup_check(entry.get("suggestion"))
+            values = [v for v in (evidence, issue, suggestion) if v]
+            if len(values) >= 2 and len(set(values)) < len(values):
+                criterion = entry.get("criterion", "?")
+                problems.append(f"criteria_evaluations의 '{criterion}' 항목은 evidence/issue/suggestion 중 일부가 동일한 문장입니다.")
+
+    return problems
+
+
+def _build_corrective_note(problems: list[str]) -> str:
+    bullet_list = "\n".join(f"- {problem}" for problem in problems)
+    return (
+        "\n\n이전 응답에서 다음 문제가 발견되었습니다. 같은 문제를 반복하지 말고, 이번 사진에서 "
+        "실제로 관찰한 서로 다른 내용으로 해당 항목들을 완전히 새로 작성하세요:\n" + bullet_list
+    )
 
 
 def apply_defaults(result: dict[str, Any], user_zone: str) -> dict[str, Any]:
@@ -49,6 +133,9 @@ def apply_defaults(result: dict[str, Any], user_zone: str) -> dict[str, Any]:
     result.setdefault("positive_points", [])
     result.setdefault("critical_issues", [])
     result.setdefault("improvement_suggestions", [])
+    result["positive_points"] = [_strip_ordinal_prefix(item) for item in result["positive_points"]]
+    result["critical_issues"] = [_strip_ordinal_prefix(item) for item in result["critical_issues"]]
+    result["improvement_suggestions"] = [_strip_ordinal_prefix(item) for item in result["improvement_suggestions"]]
     result.setdefault("final_summary", "")
     result.setdefault("zone_evaluation_summary", result.get("final_summary", ""))
     result.setdefault("priority_action_summary", result.get("final_summary", ""))
@@ -66,9 +153,9 @@ def apply_defaults(result: dict[str, Any], user_zone: str) -> dict[str, Any]:
             {
                 "criterion": criterion,
                 "score": item.get("score"),
-                "evidence": item.get("evidence", ""),
-                "issue": item.get("issue", ""),
-                "suggestion": item.get("suggestion", ""),
+                "evidence": _strip_ordinal_prefix(item.get("evidence", "")),
+                "issue": _strip_ordinal_prefix(item.get("issue", "")),
+                "suggestion": _strip_ordinal_prefix(item.get("suggestion", "")),
             }
         )
     result["criteria_evaluations"] = normalized_criteria
@@ -88,6 +175,184 @@ def image_content_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return items
 
 
+_MD_HEADER_RE = re.compile(r"^(#{1,4})\s*(.+?)\s*$")
+_MD_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
+_MD_BULLET_RE = re.compile(r"^\s*[*\-]\s+(.+?)\s*$")
+_MD_LABELED_BULLET_RE = re.compile(
+    r"^\s*[*\-]\s+(evidence|issue|suggestion)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE
+)
+
+_MD_TOP_LEVEL_FIELDS = (
+    "positive_points",
+    "critical_issues",
+    "improvement_suggestions",
+    "final_summary",
+    "photo_quality",
+    "criteria_evaluations",
+)
+
+
+def _match_top_level_field(title: str) -> str | None:
+    normalized = title.replace(" ", "").lower()
+    for field in _MD_TOP_LEVEL_FIELDS:
+        if field in normalized:
+            return field
+    return None
+
+
+def _extract_block_text(lines: list[str]) -> str:
+    bullets: list[str] = []
+    for line in lines:
+        match = _MD_BULLET_RE.match(line)
+        if match:
+            bullets.append(match.group(1))
+    if bullets:
+        return " ".join(bullets)
+    # 불릿이 아니라 일반 문단으로 쓴 경우(final_summary/photo_quality.comment에서 흔함)
+    plain = [line.strip() for line in lines if line.strip() and not _MD_HEADER_RE.match(line)]
+    return " ".join(plain)
+
+
+def _extract_list_items(lines: list[str]) -> list[str]:
+    # 이 모델은 목록을 최소 세 가지 형태로 씁니다 (실측으로 확인):
+    #   A) 직속 불릿만: "* 문장"
+    #   B) 번호 항목 + 중첩 불릿에 실제 내용: "1. 항목명\n    * 실제 문장" (번호 항목
+    #      텍스트는 criterion 이름 재사용이라 내용이 아님 -> 무시하고 중첩 불릿만 사용)
+    #   C) 번호 항목 자체에 내용: "1. 실제 문장" (중첩 불릿 없음 -> 번호 항목 텍스트 사용)
+    # 번호 항목 다음에 불릿이 나오면 B로, 안 나오고 다음 번호/끝에 도달하면 C로 처리합니다.
+    items: list[str] = []
+    pending_numbered: str | None = None
+    pending_claimed = False
+    for line in lines:
+        numbered_match = _MD_NUMBERED_RE.match(line)
+        if numbered_match:
+            if pending_numbered is not None and not pending_claimed:
+                items.append(pending_numbered)
+            pending_numbered = numbered_match.group(1)
+            pending_claimed = False
+            continue
+        bullet_match = _MD_BULLET_RE.match(line)
+        if bullet_match:
+            items.append(bullet_match.group(1))
+            if pending_numbered is not None:
+                pending_claimed = True
+    if pending_numbered is not None and not pending_claimed:
+        items.append(pending_numbered)
+    return items
+
+
+def _parse_criteria_block(lines: list[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    current_title: str | None = None
+    current_fields: dict[str, str] = {}
+    current_bullets: list[str] = []
+
+    def flush() -> None:
+        if current_title is None:
+            return
+        evidence = current_fields.get("evidence", "")
+        issue = current_fields.get("issue", "")
+        suggestion = current_fields.get("suggestion", "")
+        if not (evidence or issue or suggestion) and current_bullets:
+            # 라벨(evidence:/issue:/suggestion:) 없이 불릿만 있는 경우 순서로 추정합니다.
+            # 항목이 2개뿐일 때 억지로 3필드를 다 채우면 evidence==suggestion 중복이
+            # 생겨 _find_content_problems의 중복 검사에 잘못 걸리므로, 없는 필드는
+            # 빈 문자열로 남겨둡니다.
+            if len(current_bullets) >= 3:
+                evidence, issue, suggestion = current_bullets[0], current_bullets[1], current_bullets[2]
+            elif len(current_bullets) == 2:
+                evidence, suggestion = current_bullets[0], current_bullets[1]
+            else:
+                evidence = current_bullets[0]
+        if evidence or issue or suggestion:
+            entries.append(
+                {
+                    "criterion": current_title,
+                    "score": None,
+                    "evidence": evidence,
+                    "issue": issue,
+                    "suggestion": suggestion,
+                }
+            )
+
+    for line in lines:
+        header_match = _MD_HEADER_RE.match(line)
+        numbered_match = _MD_NUMBERED_RE.match(line)
+        title_text: str | None = None
+        if header_match and _match_top_level_field(header_match.group(2)) is None:
+            title_text = header_match.group(2)
+        elif numbered_match:
+            title_text = numbered_match.group(1)
+        if title_text is not None:
+            flush()
+            current_title = title_text
+            current_fields = {}
+            current_bullets = []
+            continue
+        labeled_match = _MD_LABELED_BULLET_RE.match(line)
+        if labeled_match and current_title is not None:
+            current_fields[labeled_match.group(1).lower()] = labeled_match.group(2)
+            continue
+        bullet_match = _MD_BULLET_RE.match(line)
+        if bullet_match and current_title is not None:
+            current_bullets.append(bullet_match.group(1))
+    flush()
+    return entries
+
+
+def _parse_markdown_sections(content: str) -> dict[str, Any] | None:
+    # response_format=json_schema(strict)를 요청해도 이 모델은 JSON 대신 마크다운
+    # 산문으로 응답할 때가 있습니다(실측으로 확인). 게다가 그 마크다운 형식 자체도
+    # 매번 똑같지 않아서(예: 직속 불릿 vs 번호 항목+중첩 불릿, evidence: 라벨 유무),
+    # 헤더 깊이가 아니라 알려진 필드 이름과의 매칭으로 블록 경계를 잡습니다. 순수 JSON
+    # 파싱이 실패했을 때만 시도하는 최후 폴백입니다.
+    blocks: list[tuple[str, list[str]]] = []
+    current_field: str | None = None
+    current_lines: list[str] = []
+    for line in content.splitlines():
+        header_match = _MD_HEADER_RE.match(line)
+        if header_match:
+            field = _match_top_level_field(header_match.group(2))
+            if field is not None:
+                if current_field is not None:
+                    blocks.append((current_field, current_lines))
+                current_field = field
+                current_lines = []
+                continue
+        if current_field is not None:
+            current_lines.append(line)
+    if current_field is not None:
+        blocks.append((current_field, current_lines))
+    if not blocks:
+        return None
+
+    result: dict[str, Any] = {}
+    for field, body_lines in blocks:
+        if field == "criteria_evaluations":
+            entries = _parse_criteria_block(body_lines)
+            if entries:
+                result["criteria_evaluations"] = entries
+        elif field == "photo_quality":
+            comment = _extract_block_text(body_lines)
+            if comment:
+                result.setdefault("photo_quality", {})["comment"] = comment
+        elif field == "final_summary":
+            text = _extract_block_text(body_lines)
+            if text:
+                result["final_summary"] = text
+        else:  # positive_points / critical_issues / improvement_suggestions
+            items = _extract_list_items(body_lines)
+            if items:
+                result[field] = items
+
+    # 실제로 뭔가 건진 필드가 하나도 없으면(전부 빈 채로 헤더만 매칭됐으면) 마크다운
+    # 파싱도 실패로 취급해서 호출부가 다음 모델/변형으로 폴백하게 둡니다. 빈 리스트를
+    # "성공"으로 착각해서 분석 실패나 다름없는 빈 결과를 그대로 승인하면 안 됩니다.
+    if not result:
+        return None
+    return result
+
+
 def parse_model_content(content: str) -> dict[str, Any]:
     cleaned = content.strip()
     if cleaned.startswith("```"):
@@ -100,32 +365,19 @@ def parse_model_content(content: str) -> dict[str, Any]:
         end = cleaned.rfind("}")
         if start >= 0 and end > start:
             return json.loads(cleaned[start : end + 1])
+        markdown_result = _parse_markdown_sections(cleaned)
+        if markdown_result is not None:
+            return markdown_result
         raise
 
 
-def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dict[str, Any]:
-    if not images:
-        raise ValueError("At least one image is required.")
-
-    cache_key = build_cache_key(images, options)
-    cached = get_cached_result(cache_key)
-    if cached is not None:
-        return cached
-
-    requested_model = (options.get("modelName") or settings.nim_model).strip()
-    zone = normalize_zone(options.get("zoneMode"))
-    content = [{"type": "text", "text": build_user_text(options, len(images)) + "\n\n" + schema_instruction()}]
-    content.extend(image_content_items(images))
-
-    base_payload = {
-        "messages": [
-            {"role": "system", "content": system_prompt()},
-            {"role": "user", "content": content},
-        ],
-        "temperature": float(options.get("temperature", 0.2) or 0.2),
-        "max_tokens": int(options.get("maxTokens", 2200) or 2200),
-    }
-
+def _request_and_parse(
+    base_payload: dict[str, Any], requested_model: str, deadline: float
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None, str, list[str]]:
+    # deadline은 time.monotonic() 기준 절대 시각입니다. 모델/스키마 폴백 후보가 여러 개일
+    # 수 있어서, 각 후보에 남은 예산만큼만 timeout을 주고 예산이 바닥나면 더 시도하지 않고
+    # 즉시 반환합니다 — 후보마다 고정된 timeout을 다시 다 주면 폴백 개수만큼 시간이
+    # 곱해져서 analyze_images의 전체 예산을 쉽게 넘깁니다.
     errors: list[str] = []
     raw = None
     parsed = None
@@ -143,8 +395,13 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
             {**base_payload, "model": candidate_model},
         ]
         for payload in request_variants:
+            remaining = deadline - time.monotonic()
+            if remaining < _MIN_ATTEMPT_SECONDS:
+                errors.append(f"{candidate_model}: skipped, remaining budget {remaining:.0f}s < {_MIN_ATTEMPT_SECONDS}s")
+                return raw, parsed, model, errors
+            call_timeout = int(min(settings.nim_timeout_seconds, remaining))
             try:
-                candidate_raw = nim_request(payload)
+                candidate_raw = nim_request(payload, timeout=call_timeout)
             except RuntimeError as exc:
                 message = str(exc)
                 errors.append(f"{candidate_model}: {message}")
@@ -163,6 +420,65 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
             break
         if raw is not None:
             break
+    return raw, parsed, model, errors
+
+
+def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dict[str, Any]:
+    if not images:
+        raise ValueError("At least one image is required.")
+
+    cache_key = build_cache_key(images, options)
+    cached = get_cached_result(cache_key)
+    if cached is not None:
+        return cached
+
+    request_start = time.monotonic()
+    requested_model = (options.get("modelName") or settings.nim_model).strip()
+    zone = normalize_zone(options.get("zoneMode"))
+    base_text = build_user_text(options, len(images)) + "\n\n" + schema_instruction()
+    image_items = image_content_items(images)
+    base_temperature = float(options.get("temperature", 0.2) or 0.2)
+    # 예시 JSON을 없앤 뒤로 모델이 예시의 문장 밀도를 참고하지 못해 criteria_evaluations를
+    # 포함한 전체 응답이 예전보다 길어지고, 2200 토큰에서는 종종 응답이 중간에 잘려
+    # (finish_reason="length") 파싱 실패 -> 모델/스키마 폴백 재시도로 이어져 훨씬 오래 걸리는
+    # 것을 실측으로 확인했습니다. 여유 있게 잡아 잘림 자체를 없앱니다.
+    max_tokens = int(options.get("maxTokens", 6000) or 6000)
+
+    deadline = request_start + _TOTAL_TIME_BUDGET_SECONDS
+
+    errors: list[str] = []
+    raw = None
+    parsed = None
+    model = requested_model
+    problems: list[str] = []
+    corrective_note = ""
+    for attempt in range(_MAX_CONTENT_RETRIES + 1):
+        remaining = deadline - time.monotonic()
+        if attempt > 0 and remaining < _MIN_ATTEMPT_SECONDS:
+            # 콘텐츠 품질 재시도를 하기엔 남은 예산이 너무 적음 (1차 호출이 오래 걸렸다는
+            # 뜻). Vercel 300초 벽을 넘기느니 문제가 있더라도 1차 결과를 그대로 반환합니다.
+            break
+        content = [{"type": "text", "text": base_text + corrective_note}]
+        content.extend(image_items)
+        payload = {
+            "messages": [
+                {"role": "system", "content": system_prompt()},
+                {"role": "user", "content": content},
+            ],
+            "temperature": min(base_temperature + 0.3 * attempt, 1.0),
+            "max_tokens": max_tokens,
+        }
+        attempt_raw, attempt_parsed, attempt_model, attempt_errors = _request_and_parse(
+            payload, requested_model, deadline=deadline
+        )
+        errors.extend(attempt_errors)
+        if attempt_raw is None:
+            continue
+        raw, parsed, model = attempt_raw, attempt_parsed, attempt_model
+        problems = _find_content_problems(parsed)
+        if not problems:
+            break
+        corrective_note = _build_corrective_note(problems)
     if raw is None:
         raise RuntimeError("NIM request failed after model and JSON fallbacks: " + " | ".join(errors))
 
@@ -170,5 +486,7 @@ def analyze_images(images: list[dict[str, Any]], options: dict[str, Any]) -> dic
     parsed["user_selected_zone"] = zone
     parsed["grade"] = parsed.get("grade") or grade_from_score(parsed.get("total_score"))
     result = {"result": parsed, "raw": raw, "model": model}
+    if problems:
+        result["content_warnings"] = problems
     store_result(cache_key, result)
     return result

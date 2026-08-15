@@ -25,13 +25,21 @@ def nim_request(payload: dict[str, Any], timeout: int | None = None) -> dict[str
         },
         method="POST",
     )
+    effective_timeout = timeout or settings.nim_timeout_seconds
     try:
-        with urllib.request.urlopen(request, timeout=timeout or settings.nim_timeout_seconds) as response:
+        with urllib.request.urlopen(request, timeout=effective_timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         detail = body.strip() or exc.reason
         raise RuntimeError(f"NIM HTTP {exc.code}: {detail}") from exc
+    except TimeoutError as exc:
+        # 순수 소켓 타임아웃은 HTTPError가 아니라서 위 except에 안 걸립니다. 여기서 잡아
+        # RuntimeError로 바꿔야 is_retriable_nim_error가 인식해서 다음 변형/모델로
+        # 폴백할 수 있습니다 (안 그러면 요청 전체가 그대로 죽습니다).
+        raise RuntimeError(f"NIM request timed out after {effective_timeout}s") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"NIM request failed: {exc.reason}") from exc
 
 
 def nim_model_candidates(requested_model: str) -> list[str]:
