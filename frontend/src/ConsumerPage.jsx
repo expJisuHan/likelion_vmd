@@ -245,7 +245,7 @@ export default function ConsumerPage() {
 
             <div className="cp-upload-row">
               <label className="cp-dropzone" htmlFor="cpImageInput">
-                <span className="cp-dropzone-icon" aria-hidden="true"><Camera size={34} /></span>
+                <span className="cp-dropzone-icon" aria-hidden="true"><Camera size={56} /></span>
                 <span>
                   <span className="cp-dropzone-title">사진 선택하기</span>
                   <span className="cp-dropzone-copy">JPG, PNG 파일을 여러 장 고를 수 있어요.</span>
@@ -259,7 +259,7 @@ export default function ConsumerPage() {
                 onClick={isCameraOpen ? stopCamera : startCamera}
               >
                 <span className="cp-dropzone-icon" aria-hidden="true">
-                  {isCameraOpen ? <X size={34} /> : <Camera size={34} />}
+                  {isCameraOpen ? <X size={56} /> : <Camera size={56} />}
                 </span>
                 <span>
                   <span className="cp-dropzone-title">{isCameraOpen ? '카메라 닫기' : '카메라로 촬영하기'}</span>

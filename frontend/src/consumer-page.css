@@ -255,9 +255,14 @@
   box-shadow: 0 6px 18px rgba(17, 17, 17, 0.04);
 }
 
-/* 사진 올리기 섹션은 전체적으로 조금 더 여유 있게 키웁니다. */
+/* 사진 올리기 섹션은 전체적으로 조금 더 여유 있게 키웁니다(약 1.6배 높이). */
 .cp-step-photo {
-  padding: 32px 32px 36px;
+  padding: 40px 40px 48px;
+}
+
+.cp-step-photo .cp-step-desc {
+  font-size: 1.05em;
+  font-weight: 600;
 }
 
 .cp-step h2 {
@@ -294,23 +299,27 @@
 .cp-upload-row {
   display: flex;
   align-items: stretch;
-  gap: 20px;
-  margin-top: 20px;
+  gap: 24px;
+  margin-top: 24px;
 }
 
+/* 사진 선택 / 카메라 촬영 칸: 아이콘을 위, 글자를 아래에 두고 가운데 정렬해서
+   큰 터치 영역을 채웁니다(가로 배치보다 빈 공간이 덜 남습니다). */
 .cp-dropzone {
   flex: 1 1 50%;
   min-width: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 18px;
-  min-height: 150px;
+  min-height: 320px;
   border: 2px dashed var(--cp-line-strong);
   border-radius: var(--cp-radius-btn);
-  padding: 26px 28px;
+  padding: 40px 32px;
   cursor: pointer;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.98));
-  text-align: left;
+  text-align: center;
 }
 
 .cp-dropzone:hover,
@@ -335,15 +344,16 @@
 
 .cp-dropzone-title {
   display: block;
-  font-weight: 700;
-  font-size: 1.2em;
-  margin-bottom: 0.15em;
+  font-weight: 800;
+  font-size: 1.5em;
+  margin-bottom: 0.3em;
 }
 
 .cp-dropzone-copy {
   display: block;
   color: var(--cp-muted);
-  font-size: 0.9em;
+  font-weight: 600;
+  font-size: 1.05em;
 }
 
 .cp-camera-panel {
@@ -626,11 +636,6 @@
 
   .cp-upload-row {
     flex-direction: column;
-  }
-
-  .cp-dropzone {
-    flex-direction: column;
-    text-align: center;
   }
 }
 
