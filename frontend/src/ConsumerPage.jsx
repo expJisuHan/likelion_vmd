@@ -1,10 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   CheckCircle,
   CircleHalf,
   DownloadSimple,
+  Pause,
+  Play,
+  SpeakerHigh,
   SpinnerGap,
+  Stop,
   TextAa,
   Trash,
   WarningCircle,
@@ -21,6 +25,8 @@ import {
   downloadBase64File,
   postJson,
 } from './mediaUtils';
+import { useSpeechNarration, TTS_RATE_LABELS } from './useSpeechNarration';
+import { buildResultNarration } from './narration';
 
 const TEXT_SIZE_KEY = 'vmd-consumer-text-size';
 const CONTRAST_KEY = 'vmd-consumer-high-contrast';
@@ -52,6 +58,9 @@ export default function ConsumerPage() {
   const resultHeadingRef = useRef(null);
   const captureButtonRef = useRef(null);
 
+  const narration = useSpeechNarration();
+  const narrationText = useMemo(() => buildResultNarration(result, batchInfo), [result, batchInfo]);
+
   useEffect(() => {
     window.localStorage.setItem(TEXT_SIZE_KEY, textSize);
   }, [textSize]);
@@ -59,6 +68,12 @@ export default function ConsumerPage() {
   useEffect(() => {
     window.localStorage.setItem(CONTRAST_KEY, highContrast ? '1' : '0');
   }, [highContrast]);
+
+  // 결과 내용이 바뀌면(새 분석 완료, 결과 초기화 등) 이전 결과를 읽던 음성을 멈춥니다.
+  useEffect(() => {
+    narration.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [narrationText]);
 
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -154,6 +169,7 @@ export default function ConsumerPage() {
     setErrorMessage('');
     setIsAnalyzing(true);
     setStatusMessage('분석 중입니다. 잠시만 기다려 주세요...');
+    narration.stop();
     try {
       const payload = await postJson('/api/analyze', { images: previewImages, options: buildOptions() });
       setResult(payload.result || null);
@@ -183,6 +199,7 @@ export default function ConsumerPage() {
     setErrorMessage('');
     setIsAnalyzing(true);
     setStatusMessage('이미지를 하나씩 분석해서 엑셀로 정리하는 중입니다...');
+    narration.stop();
     try {
       const payload = await postJson('/api/batch-analyze', { images: previewImages, options: buildOptions() });
       const firstResult = payload.results?.[0]?.result || null;
@@ -367,6 +384,64 @@ export default function ConsumerPage() {
             <p className="cp-help-text">아직 분석 결과가 없습니다. 위에서 사진을 올리고 분석을 시작해 주세요.</p>
           ) : (
             <>
+              <div className="cp-narration" role="group" aria-label="음성으로 결과 듣기">
+                {narration.isSupported ? (
+                  <>
+                    <div className="cp-narration-controls">
+                      <button
+                        type="button"
+                        className="cp-btn cp-btn-primary"
+                        onClick={() => {
+                          if (narration.status === 'playing') {
+                            narration.pause();
+                          } else if (narration.status === 'paused') {
+                            narration.resume();
+                          } else {
+                            narration.speak(narrationText);
+                          }
+                        }}
+                      >
+                        {narration.status === 'playing' ? (
+                          <><Pause size={18} aria-hidden="true" />일시정지</>
+                        ) : narration.status === 'paused' ? (
+                          <><Play size={18} aria-hidden="true" />이어 듣기</>
+                        ) : (
+                          <><SpeakerHigh size={18} aria-hidden="true" />결과 읽어주기</>
+                        )}
+                      </button>
+                      {(narration.status === 'playing' || narration.status === 'paused') && (
+                        <button type="button" className="cp-btn cp-btn-outline" onClick={narration.stop}>
+                          <Stop size={18} aria-hidden="true" />정지
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="cp-narration-rate" role="group" aria-label="읽는 속도 선택">
+                      <span className="cp-toolbar-label">읽는 속도</span>
+                      {Object.entries(TTS_RATE_LABELS).map(([key, label]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          aria-pressed={narration.rateKey === key}
+                          onClick={() => narration.setRateKey(key)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <p className="cp-narration-status" role="status" aria-live="polite">
+                      {narration.status === 'playing' && '음성으로 읽는 중입니다.'}
+                      {narration.status === 'paused' && '일시정지했습니다.'}
+                      {narration.status === 'done' && '읽기를 마쳤습니다.'}
+                      {narration.status === 'error' && '음성 읽기 중 오류가 발생했습니다.'}
+                    </p>
+                  </>
+                ) : (
+                  <p className="cp-help-text">이 브라우저는 결과를 음성으로 읽어주는 기능을 지원하지 않습니다.</p>
+                )}
+              </div>
+
               {batchInfo && (
                 <p className="cp-help-text">사진 {batchInfo.count}장 중 첫 번째 사진의 결과를 아래에 보여드려요. 전체 결과는 엑셀 파일에서 확인하세요.</p>
               )}
