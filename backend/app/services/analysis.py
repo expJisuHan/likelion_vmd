@@ -101,6 +101,10 @@ def _build_corrective_note(problems: list[str]) -> str:
 def apply_defaults(result: dict[str, Any], user_zone: str) -> dict[str, Any]:
     result.setdefault("user_selected_zone", user_zone)
     result.setdefault("ai_detected_zone", "UNKNOWN")
+    if result.get("ai_detected_zone") == "UNKNOWN":
+        # 모델이 AI 판단 존을 아예 빼먹거나 불확실해서 UNKNOWN을 반환하는 경우가 있어,
+        # 화면에 의미 없는 UNKNOWN을 보여주는 대신 사용자가 지정한 존을 그대로 표시합니다.
+        result["ai_detected_zone"] = user_zone
     result.setdefault("zone_confidence", 0)
     result.setdefault("store_type_assumption", "UNKNOWN")
     result.setdefault(
@@ -175,12 +179,23 @@ def image_content_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return items
 
 
-_MD_HEADER_RE = re.compile(r"^(#{1,4})\s*(.+?)\s*$")
+# "#### criteria_evaluations" 형태와 "**criteria_evaluations**" 형태(모델이 헤더 대신
+# 볼드로 섹션을 표시하는 경우, 실측으로 확인) 둘 다 헤더로 인식합니다. **로 감싼 쪽은
+# 줄 전체가 "**텍스트**"여야만 헤더로 취급합니다 — 그렇지 않으면 "**중요:** 문장..."처럼
+# 문장 중간의 강조 표시까지 헤더로 오인합니다.
+_MD_HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*(?P<h1>.+?)|\*\*(?P<h2>[^*].*?)\*\*)\s*$")
 _MD_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
 _MD_BULLET_RE = re.compile(r"^\s*[*\-]\s+(.+?)\s*$")
 _MD_LABELED_BULLET_RE = re.compile(
-    r"^\s*[*\-]\s+(evidence|issue|suggestion)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE
+    r"^\s*[*\-]\s+(evidence|issue|suggestion|score)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE
 )
+_MD_LABEL_PREFIX_RE = re.compile(r"^[^\n:：]{1,30}[:：]\s*")
+_MD_EMPHASIS_RE = re.compile(r"^\*{1,2}(.+?)\*{1,2}$")
+
+
+def _strip_md_emphasis(text: str) -> str:
+    match = _MD_EMPHASIS_RE.match(text.strip())
+    return match.group(1).strip() if match else text.strip()
 
 _MD_TOP_LEVEL_FIELDS = (
     "positive_points",
@@ -200,6 +215,10 @@ def _match_top_level_field(title: str) -> str | None:
     return None
 
 
+def _header_title(match: re.Match) -> str:
+    return (match.group("h1") or match.group("h2") or "").strip()
+
+
 def _extract_block_text(lines: list[str]) -> str:
     bullets: list[str] = []
     for line in lines:
@@ -214,30 +233,39 @@ def _extract_block_text(lines: list[str]) -> str:
 
 
 def _extract_list_items(lines: list[str]) -> list[str]:
-    # 이 모델은 목록을 최소 세 가지 형태로 씁니다 (실측으로 확인):
+    # 이 모델은 목록을 여러 형태로 씁니다 (실측으로 확인):
     #   A) 직속 불릿만: "* 문장"
-    #   B) 번호 항목 + 중첩 불릿에 실제 내용: "1. 항목명\n    * 실제 문장" (번호 항목
+    #   B) 번호 항목 + 중첩 불릿 1개에 실제 내용: "1. 항목명\n   * 실제 문장" (번호 항목
     #      텍스트는 criterion 이름 재사용이라 내용이 아님 -> 무시하고 중첩 불릿만 사용)
     #   C) 번호 항목 자체에 내용: "1. 실제 문장" (중첩 불릿 없음 -> 번호 항목 텍스트 사용)
-    # 번호 항목 다음에 불릿이 나오면 B로, 안 나오고 다음 번호/끝에 도달하면 C로 처리합니다.
+    #   D) 번호 항목 + 중첩 불릿 여러 개, 각각 "관찰 근거:"/"효과:"처럼 프롬프트 지시
+    #      문구를 라벨로 재사용(원래 한 문장이어야 할 내용을 필드별로 쪼갬) -> 한 항목의
+    #      중첩 불릿들을 합쳐서 하나의 리스트 항목으로 취급합니다(라벨 접두어는 제거).
     items: list[str] = []
     pending_numbered: str | None = None
-    pending_claimed = False
+    pending_bullets: list[str] = []
+
+    def flush_pending() -> None:
+        if pending_bullets:
+            cleaned = [_MD_LABEL_PREFIX_RE.sub("", text).strip() for text in pending_bullets]
+            items.append(" ".join(part for part in cleaned if part))
+        elif pending_numbered is not None:
+            items.append(_strip_md_emphasis(pending_numbered))
+
     for line in lines:
         numbered_match = _MD_NUMBERED_RE.match(line)
         if numbered_match:
-            if pending_numbered is not None and not pending_claimed:
-                items.append(pending_numbered)
+            flush_pending()
             pending_numbered = numbered_match.group(1)
-            pending_claimed = False
+            pending_bullets = []
             continue
         bullet_match = _MD_BULLET_RE.match(line)
         if bullet_match:
-            items.append(bullet_match.group(1))
             if pending_numbered is not None:
-                pending_claimed = True
-    if pending_numbered is not None and not pending_claimed:
-        items.append(pending_numbered)
+                pending_bullets.append(bullet_match.group(1))
+            else:
+                items.append(bullet_match.group(1))  # 형태 A: 번호 없이 직속 불릿만
+    flush_pending()
     return items
 
 
@@ -264,11 +292,20 @@ def _parse_criteria_block(lines: list[str]) -> list[dict[str, Any]]:
                 evidence, suggestion = current_bullets[0], current_bullets[1]
             else:
                 evidence = current_bullets[0]
+        score_value: int | None = None
+        score_text = current_fields.get("score")
+        if score_text:
+            digits = re.sub(r"[^\d.]", "", score_text)
+            if digits:
+                try:
+                    score_value = max(0, min(100, int(float(digits))))
+                except ValueError:
+                    score_value = None
         if evidence or issue or suggestion:
             entries.append(
                 {
                     "criterion": current_title,
-                    "score": None,
+                    "score": score_value,
                     "evidence": evidence,
                     "issue": issue,
                     "suggestion": suggestion,
@@ -279,13 +316,17 @@ def _parse_criteria_block(lines: list[str]) -> list[dict[str, Any]]:
         header_match = _MD_HEADER_RE.match(line)
         numbered_match = _MD_NUMBERED_RE.match(line)
         title_text: str | None = None
-        if header_match and _match_top_level_field(header_match.group(2)) is None:
-            title_text = header_match.group(2)
+        if header_match and _match_top_level_field(_header_title(header_match)) is None:
+            title_text = _header_title(header_match)
         elif numbered_match:
             title_text = numbered_match.group(1)
         if title_text is not None:
             flush()
-            current_title = title_text
+            # 번호 항목 제목에 "**연출 콘셉트의 시각적 일관성**"처럼 볼드가 섞여 오면
+            # criterion 이름이 zones.py의 정확한 문자열과 안 맞아 apply_defaults()의
+            # by_name 매칭이 실패하고 평가 전체가 빈 값으로 버려집니다(실측으로 확인
+            # 및 수정한 버그) — 반드시 볼드 마크를 벗기고 criterion으로 씁니다.
+            current_title = _strip_md_emphasis(title_text)
             current_fields = {}
             current_bullets = []
             continue
@@ -295,7 +336,11 @@ def _parse_criteria_block(lines: list[str]) -> list[dict[str, Any]]:
             continue
         bullet_match = _MD_BULLET_RE.match(line)
         if bullet_match and current_title is not None:
-            current_bullets.append(bullet_match.group(1))
+            # "evidence/issue/suggestion: 문장"처럼 라벨을 슬래시로 합쳐 쓰는 경우가 있어
+            # (실측으로 확인) _MD_LABELED_BULLET_RE에 안 걸립니다. 남아있는 라벨 프리픽스만
+            # 걷어내고 나머지는 일반 불릿으로 취급합니다.
+            text = _MD_LABEL_PREFIX_RE.sub("", bullet_match.group(1))
+            current_bullets.append(text)
     flush()
     return entries
 
@@ -312,7 +357,7 @@ def _parse_markdown_sections(content: str) -> dict[str, Any] | None:
     for line in content.splitlines():
         header_match = _MD_HEADER_RE.match(line)
         if header_match:
-            field = _match_top_level_field(header_match.group(2))
+            field = _match_top_level_field(_header_title(header_match))
             if field is not None:
                 if current_field is not None:
                     blocks.append((current_field, current_lines))
@@ -351,6 +396,98 @@ def _parse_markdown_sections(content: str) -> dict[str, Any] | None:
     if not result:
         return None
     return result
+
+
+_HEADER_KEY_NAMES = (
+    "TOTAL_SCORE",
+    "AI_DETECTED_ZONE",
+    "ZONE_CONFIDENCE",
+    "PHOTO_QUALITY_SCORE",
+    "MANNEQUIN_EXISTS",
+    "MANNEQUIN_TYPE",
+)
+_HEADER_KEY_RE = re.compile(r"\b(" + "|".join(_HEADER_KEY_NAMES) + r")\s*[:：]\s*", re.IGNORECASE)
+
+
+def _extract_header_fields(content: str) -> dict[str, Any]:
+    # 프롬프트가 응답 맨 앞에 TOTAL_SCORE/AI_DETECTED_ZONE/ZONE_CONFIDENCE/
+    # PHOTO_QUALITY_SCORE/MANNEQUIN_EXISTS/MANNEQUIN_TYPE 6줄을 "KEY: value" 형식으로
+    # 강제합니다. 이 필드들은 JSON 중첩 객체/배열이라 모델이 마크다운 모드로 빠지면 자주
+    # 통째로 빠뜨리는데(총점 0점, AI 판단 존 UNKNOWN, 마네킹 없음으로 잘못 표시되는 원인),
+    # 단순 key:value 줄은 JSON/마크다운 어느 쪽이든 안정적으로 건질 수 있습니다.
+    # 다만 모델이 6줄을 지시대로 줄바꿈해서 쓰지 않고 "**TOTAL_SCORE: 60** AI_DETECTED_ZONE:
+    # VP ..." 처럼 한 줄에 붙여 쓰는 경우가 있어(실측으로 확인), 줄 단위가 아니라 각 키
+    # 매치의 끝부터 다음 키 매치가 시작되는 지점까지(또는 줄바꿈)를 값으로 잘라냅니다.
+    matches = list(_HEADER_KEY_RE.finditer(content))
+    values: dict[str, str] = {}
+    for index, match in enumerate(matches):
+        key = match.group(1).upper()
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else min(len(content), start + 80)
+        raw_value = content[start:end].split("\n", 1)[0]
+        value = raw_value.strip().strip("*# ").strip()
+        if value:
+            values.setdefault(key, value)
+
+    result: dict[str, Any] = {}
+    if "TOTAL_SCORE" in values:
+        digits = re.sub(r"[^\d.]", "", values["TOTAL_SCORE"])
+        if digits:
+            try:
+                result["total_score"] = max(0, min(100, int(float(digits))))
+            except ValueError:
+                pass
+    if "AI_DETECTED_ZONE" in values:
+        zone_value = values["AI_DETECTED_ZONE"].upper()
+        if zone_value in {"VP", "PP", "IP", "UNKNOWN"}:
+            result["ai_detected_zone"] = zone_value
+    if "ZONE_CONFIDENCE" in values:
+        try:
+            result["zone_confidence"] = max(0.0, min(1.0, float(values["ZONE_CONFIDENCE"])))
+        except ValueError:
+            pass
+    if "PHOTO_QUALITY_SCORE" in values:
+        digits = re.sub(r"[^\d.]", "", values["PHOTO_QUALITY_SCORE"])
+        if digits:
+            try:
+                result["photo_quality_score"] = max(0, min(100, int(float(digits))))
+            except ValueError:
+                pass
+    if "MANNEQUIN_EXISTS" in values:
+        exists = values["MANNEQUIN_EXISTS"].strip().lower() in {"true", "yes", "1", "예", "있음"}
+        mannequin: dict[str, Any] = {"exists": exists}
+        mannequin_type = values.get("MANNEQUIN_TYPE", "").strip()
+        if mannequin_type:
+            mannequin["type"] = mannequin_type
+            lowered = mannequin_type.lower()
+            if "headless" in lowered:
+                mannequin["has_head"] = False
+            elif "head" in lowered:
+                mannequin["has_head"] = True
+        result["mannequin"] = mannequin
+    return result
+
+
+def _merge_header_fields(parsed: dict[str, Any], content: str) -> None:
+    # parsed에 이미 있는 값(정상 JSON 응답)은 절대 덮어쓰지 않고, 마크다운 폴백 등으로
+    # 통째로 빠진 필드만 채웁니다. setdefault는 키의 '존재 여부'만 보므로, 모델이 JSON
+    # 스키마를 제대로 지켜 이 필드들을 이미 채웠다면 아무 영향이 없습니다.
+    header = _extract_header_fields(content)
+    if "total_score" in header:
+        parsed.setdefault("total_score", header["total_score"])
+    if "ai_detected_zone" in header:
+        parsed.setdefault("ai_detected_zone", header["ai_detected_zone"])
+    if "zone_confidence" in header:
+        parsed.setdefault("zone_confidence", header["zone_confidence"])
+    if "photo_quality_score" in header:
+        photo_quality = parsed.setdefault("photo_quality", {})
+        if isinstance(photo_quality, dict):
+            photo_quality.setdefault("score", header["photo_quality_score"])
+    if "mannequin" in header:
+        mannequin = parsed.setdefault("mannequin", {})
+        if isinstance(mannequin, dict):
+            for key, value in header["mannequin"].items():
+                mannequin.setdefault(key, value)
 
 
 def parse_model_content(content: str) -> dict[str, Any]:
@@ -410,10 +547,12 @@ def _request_and_parse(
                 continue
             try:
                 message = candidate_raw["choices"][0]["message"]
-                candidate_parsed = parse_model_content(message.get("content", ""))
+                content_text = message.get("content", "")
+                candidate_parsed = parse_model_content(content_text)
             except Exception as exc:
                 errors.append(f"{candidate_model}: invalid JSON response: {exc}")
                 continue
+            _merge_header_fields(candidate_parsed, content_text)
             raw = candidate_raw
             parsed = candidate_parsed
             model = candidate_model
