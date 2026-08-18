@@ -1,107 +1,16 @@
 import React, { useEffect, useRef, useState } from 'react';
 import './new-home.css';
-
-const UPLOAD_MAX_DIMENSION = 1920;
-const UPLOAD_TARGET_BYTES = 700000;
-const EXCEL_MIME_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-const PDF_MIME_TYPE = 'application/pdf';
-
-function Logo() {
-  return (
-    <svg width="56" height="56" viewBox="0 0 56 56" aria-hidden="true" role="img">
-      <rect width="56" height="56" rx="10" fill="#ffffff" />
-      <g transform="translate(6 6)" fill="#ded8ce">
-        <path d="M6 34v-4h6v-18H6v-4h20v4h-6v18h6v4H6z" />
-      </g>
-    </svg>
-  );
-}
-
-function dataUrlByteLength(dataUrl) {
-  const base64 = dataUrl.split(',')[1] || '';
-  return Math.floor((base64.length * 3) / 4);
-}
-
-function resizeImageDataUrl(dataUrl, maxDimension, targetBytes) {
-  return new Promise((resolve) => {
-    if (dataUrlByteLength(dataUrl) <= targetBytes) {
-      resolve(dataUrl);
-      return;
-    }
-    const source = new Image();
-    source.onload = () => {
-      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
-      const context = canvas.getContext('2d');
-      if (!context) {
-        resolve(dataUrl);
-        return;
-      }
-      context.drawImage(source, 0, 0, canvas.width, canvas.height);
-      let output = dataUrl;
-      for (const quality of [0.85, 0.75, 0.65, 0.5, 0.35]) {
-        output = canvas.toDataURL('image/jpeg', quality);
-        if (dataUrlByteLength(output) <= targetBytes) {
-          break;
-        }
-      }
-      resolve(output);
-    };
-    source.onerror = () => resolve(dataUrl);
-    source.src = dataUrl;
-  });
-}
-
-function readFileAsDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = await resizeImageDataUrl(reader.result, UPLOAD_MAX_DIMENSION, UPLOAD_TARGET_BYTES);
-      resolve({ name: file.name, dataUrl });
-    };
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-function base64ToBlob(base64, mimeType) {
-  const binary = atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mimeType });
-}
-
-function downloadBase64File(base64, mimeType, fileName) {
-  if (!base64) return;
-  const url = URL.createObjectURL(base64ToBlob(base64, mimeType));
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = fileName || 'download';
-  link.click();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-async function postJson(url, body) {
-  const headers = { 'Content-Type': 'application/json' };
-  const appKey = import.meta.env.VITE_APP_ACCESS_KEY;
-  if (appKey) {
-    headers['X-App-Key'] = appKey;
-  }
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.ok === false) {
-    throw new Error(payload.error || `Request failed: ${response.status}`);
-  }
-  return payload;
-}
+import Logo from './Logo';
+import {
+  UPLOAD_MAX_DIMENSION,
+  UPLOAD_TARGET_BYTES,
+  EXCEL_MIME_TYPE,
+  PDF_MIME_TYPE,
+  resizeImageDataUrl,
+  readFileAsDataUrl,
+  downloadBase64File,
+  postJson,
+} from './mediaUtils';
 
 function DetailDrawer({ payload, state, onDock, onCenter }) {
   const result = payload?.result || {};
