@@ -1,23 +1,23 @@
-"""LM Studio(및 향후 다른 LLM)에 보낼 JSON 스키마와 프롬프트 텍스트."""
+"""NVIDIA NIM(및 향후 다른 LLM)에 보낼 JSON 스키마와 프롬프트 텍스트."""
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from .zones import criteria_for_zone, normalize_zone
 
 
 def vmd_json_schema() -> dict[str, Any]:
-    score_props = {
-        "layout": {"type": "integer", "minimum": 0, "maximum": 100},
-        "presentation_mood": {"type": "integer", "minimum": 0, "maximum": 100},
-        "brand_fit": {"type": "integer", "minimum": 0, "maximum": 100},
-        "color_harmony": {"type": "integer", "minimum": 0, "maximum": 100},
-        "cleanliness": {"type": "integer", "minimum": 0, "maximum": 100},
-        "customer_attention": {"type": "integer", "minimum": 0, "maximum": 100},
-        "season_concept_fit": {"type": "integer", "minimum": 0, "maximum": 100},
-    }
+    # 아래 필드들은 스키마에서 뺐습니다 — apply_defaults()가 다른 필드에서 자동으로
+    # 유도해주거나(zone_evaluation_summary/priority_action_summary <- final_summary,
+    # detected_issues <- critical_issues, improvement_actions/overall_improvement_summary
+    # <- improvement_suggestions), 실제 화면·Excel·PDF 어디서도 쓰이지 않는 구식 필드라
+    # (scores) 모델에게 생성을 요구할 이유가 없습니다. 작은 모델(11B)이 스키마 복잡도 때문에
+    # 응답이 잘리거나 플레이스홀더로 채워지는 문제가 있어 실제로 쓰이는 필드만 남겼습니다.
+    # positive_points/critical_issues/improvement_suggestions/final_summary/photo_quality.comment의
+    # 분량·내용 지침은 build_user_text()의 불릿에서만 서술합니다 — 이 텍스트는 schema 모드/비schema
+    # 모드 요청 모두에 항상 실려가므로, 여기 description에 같은 문장을 또 넣으면 schema 모드
+    # 요청(response_format 사용 시)에서만 토큰이 이중으로 나갑니다.
     return {
         "type": "object",
         "properties": {
@@ -33,10 +33,7 @@ def vmd_json_schema() -> dict[str, Any]:
                     "is_tilted": {"type": "boolean"},
                     "has_background_interference": {"type": "boolean"},
                     "needs_retake": {"type": "boolean"},
-                    "comment": {
-                        "type": "string",
-                        "description": "촬영 상태와 평가 신뢰도에 미치는 영향을 근거와 함께 설명한 2~3문장",
-                    },
+                    "comment": {"type": "string"},
                 },
                 "required": ["score", "is_blurry", "is_tilted", "has_background_interference", "needs_retake", "comment"],
                 "additionalProperties": False,
@@ -72,61 +69,27 @@ def vmd_json_schema() -> dict[str, Any]:
                     "additionalProperties": False,
                 },
             },
-            "scores": {
-                "type": "object",
-                "properties": score_props,
-                "required": list(score_props.keys()),
-                "additionalProperties": False,
-            },
             "total_score": {"type": "integer", "minimum": 0, "maximum": 100},
             "grade": {"type": "string"},
             "positive_points": {
                 "type": "array",
-                "description": "사진에서 확인 가능한 근거를 포함한 강점 2~3개",
                 "items": {"type": "string"},
                 "minItems": 2,
                 "maxItems": 3,
             },
             "critical_issues": {
                 "type": "array",
-                "description": "문제의 위치, 관찰 근거, VMD 영향을 포함한 핵심 문제 3~4개",
                 "items": {"type": "string"},
                 "minItems": 3,
                 "maxItems": 4,
             },
             "improvement_suggestions": {
                 "type": "array",
-                "description": "담당자가 바로 실행할 수 있도록 대상, 방법, 기대 효과를 포함한 개선안 3~4개",
                 "items": {"type": "string"},
                 "minItems": 3,
                 "maxItems": 4,
             },
-            "final_summary": {
-                "type": "string",
-                "description": "현재 상태, 핵심 강점과 문제, 우선 조치 순서를 종합한 3~5문장",
-            },
-            "zone_evaluation_summary": {
-                "type": "string",
-                "description": "사용자가 지정한 VP/IP/PP 영역 기준으로 본 종합 평가. reference Excel의 영역별 평가 컬럼에 들어갈 내용",
-            },
-            "priority_action_summary": {
-                "type": "string",
-                "description": "가장 먼저 조치할 사항과 이유를 설명한 최종 요약 답변",
-            },
-            "detected_issues": {
-                "type": "array",
-                "description": "감지된 문제점을 줄 단위로 정리",
-                "items": {"type": "string"},
-            },
-            "improvement_actions": {
-                "type": "array",
-                "description": "개선 방향을 줄 단위로 정리",
-                "items": {"type": "string"},
-            },
-            "overall_improvement_summary": {
-                "type": "string",
-                "description": "전체 개선 요약. improvement_actions를 종합해 한 문단 또는 줄바꿈 목록으로 작성",
-            },
+            "final_summary": {"type": "string"},
             "criteria_evaluations": {
                 "type": "array",
                 "description": "사용자 지정 존의 평가항목별 점수, 근거, 문제점, 개선안",
@@ -152,18 +115,12 @@ def vmd_json_schema() -> dict[str, Any]:
             "photo_quality",
             "mannequin",
             "obstacles",
-            "scores",
             "total_score",
             "grade",
             "positive_points",
             "critical_issues",
             "improvement_suggestions",
             "final_summary",
-            "zone_evaluation_summary",
-            "priority_action_summary",
-            "detected_issues",
-            "improvement_actions",
-            "overall_improvement_summary",
             "criteria_evaluations",
         ],
         "additionalProperties": False,
@@ -215,67 +172,45 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
             f"{zone} 존 전용 평가 항목: " + ", ".join(zone_criteria),
             "참고 키워드: " + (", ".join(focus_keywords) if focus_keywords else "없음"),
             "추가 평가 요청: " + (extra if extra else "없음"),
+            "다른 내용보다 먼저, 아래 6줄을 이 형식 그대로(설명 추가 없이, 줄바꿈 유지) "
+            "응답의 맨 첫 줄부터 작성하세요. 이후에만 나머지 상세 평가를 이어서 작성하세요:",
+            "TOTAL_SCORE: <0-100 정수>",
+            "AI_DETECTED_ZONE: <VP 또는 PP 또는 IP 또는 UNKNOWN>",
+            "ZONE_CONFIDENCE: <0.00~1.00>",
+            "PHOTO_QUALITY_SCORE: <0-100 정수>",
+            "MANNEQUIN_EXISTS: <true 또는 false>",
+            "MANNEQUIN_TYPE: <mannequin_with_head 또는 headless_body_mannequin 또는 hanger_display 또는 none>",
             "결과 분량 기준을 반드시 지키세요.",
-            "- zone_evaluation_summary: 지정 존의 목적과 이미지 관찰 근거를 연결해 3~5문장으로 작성하세요.",
-            "- priority_action_summary: 가장 먼저 해야 할 조치와 이유를 3~5문장으로 작성하세요.",
-            "- detected_issues: 감지된 문제점을 0~4개 작성하세요. 문제가 거의 없으면 빈 배열로 두세요.",
-            "- improvement_actions: 실행 가능한 개선 방향을 2~4개 작성하세요.",
-            "- overall_improvement_summary: 개선 방향 전체를 한 문단 또는 줄바꿈 목록으로 요약하세요.",
-            "- criteria_evaluations: 아래 존 전용 평가 항목을 같은 이름과 같은 순서로 모두 작성하세요.",
+            "- criteria_evaluations: 아래 존 전용 평가 항목을 같은 이름과 같은 순서로 모두 작성하세요. "
+            "항목마다 score(0~100 정수), evidence/issue/suggestion(각각 정확히 1문장)을 포함하세요.",
             *[f"  {index}. {criterion}" for index, criterion in enumerate(zone_criteria, start=1)],
-            "- positive_points: 서로 다른 강점 2~3개. 각 항목은 관찰 근거와 효과를 담은 1~2문장으로 작성하세요.",
-            "- critical_issues: 서로 다른 핵심 문제 3~4개. 각 항목은 위치/대상, 관찰 근거, VMD 영향을 담은 2문장 내외로 작성하세요.",
-            "- improvement_suggestions: 문제점에 대응하는 실행안 3~4개. 각 항목은 수정 대상, 구체적인 방법, 기대 효과를 담은 2문장 내외로 작성하세요.",
+            "- positive_points: 서로 다른 강점 2~3개. 각 항목은 관찰 근거와 효과를 담아 1문장으로 작성하세요.",
+            "- critical_issues: 서로 다른 핵심 문제 3~4개. 각 항목은 위치/대상, 관찰 근거, VMD 영향을 담아 1문장으로 작성하세요.",
+            "- improvement_suggestions: 문제점에 대응하는 실행안 3~4개. 각 항목은 수정 대상, 구체적인 방법, 기대 효과를 담아 1문장으로 작성하세요.",
             "- final_summary: 현재 상태와 우선순위를 종합한 3~5문장으로 작성하세요. 목록 내용을 그대로 반복하지 마세요.",
-            "- photo_quality.comment: 촬영 상태와 분석 신뢰도 영향을 2~3문장으로 작성하세요.",
+            "- photo_quality.comment: 촬영 상태와 분석 신뢰도 영향을 1~2문장으로 작성하세요.",
             "사진에서 확인할 수 없는 사실을 분량을 채우기 위해 추측하지 마세요.",
             "모든 점수는 0~100 정수로 작성하세요.",
         ]
     )
 
 
+# 예시(완성된 문장이든 <> 추상 템플릿이든)를 프롬프트에 실어 보내면 작은 모델(11B)이
+# 사진 내용과 무관하게 그 예시를 그대로, 혹은 명사 몇 개만 바꿔서 베끼는 경향이 강합니다
+# (요청마다 예시를 무작위로 바꿔봐도 "그 요청에 뽑힌 예시"를 통째로 베끼는 문제는 그대로
+# 재현됨을 실측으로 확인). 베낄 대상 자체를 프롬프트에서 없애는 것이 유일하게 확실한 해법이라
+# 예시 JSON을 완전히 제거하고, 형식·분량 요구사항은 문장으로만 지시합니다. 대신 이 텍스트만으로
+# 모델이 실제로 관찰한 내용을 채워 넣는지는 analysis.py의 사후 중복·플레이스홀더 검증 및
+# 자동 재시도(_find_content_problems/_MAX_CONTENT_RETRIES)가 한 번 더 걸러줍니다.
 def schema_instruction() -> str:
-    # 예시 1건을 모델에 함께 제시해 응답 형식을 고정합니다.
-    example = {
-        "user_selected_zone": "VP",
-        "ai_detected_zone": "VP",
-        "zone_confidence": 0.85,
-        "store_type_assumption": "UNKNOWN",
-        "photo_quality": {
-            "score": 80,
-            "is_blurry": False,
-            "is_tilted": False,
-            "has_background_interference": False,
-            "needs_retake": False,
-            "comment": "사진은 핵심 연출과 주요 상품의 형태를 식별할 수 있을 만큼 선명합니다.",
-        },
-        "mannequin": {"exists": True, "type": "headless_body_mannequin", "has_head": False, "comment": "헤드리스 바디 마네킹으로 판단됩니다."},
-        "obstacles": [{"object": "chair", "location": "right bottom", "severity": "medium", "reason": "시선을 분산시킵니다."}],
-        "scores": {
-            "layout": 80,
-            "presentation_mood": 80,
-            "brand_fit": 80,
-            "color_harmony": 80,
-            "cleanliness": 80,
-            "customer_attention": 80,
-            "season_concept_fit": 80,
-        },
-        "total_score": 80,
-        "grade": "우수",
-        "positive_points": ["강점 1", "강점 2"],
-        "critical_issues": ["문제 1", "문제 2", "문제 3"],
-        "improvement_suggestions": ["개선안 1", "개선안 2", "개선안 3"],
-        "final_summary": "현재 상태와 우선순위를 종합한 요약입니다.",
-        "zone_evaluation_summary": "지정 존 기준 종합 평가입니다.",
-        "priority_action_summary": "가장 먼저 할 조치입니다.",
-        "detected_issues": ["감지된 문제 1"],
-        "improvement_actions": ["개선 방향 1"],
-        "overall_improvement_summary": "개선 방향 전체 요약입니다.",
-        "criteria_evaluations": [
-            {"criterion": "예시 항목", "score": 80, "evidence": "근거", "issue": "문제점", "suggestion": "개선안"}
-        ],
-    }
     return (
-        "반드시 아래 예시와 같은 JSON 객체만 반환하세요. 설명 문장, markdown, 코드블록은 쓰지 마세요.\n"
-        + json.dumps(example, ensure_ascii=False, indent=2)
+        "TOTAL_SCORE로 시작하는 6줄 헤더는 예외로 그대로 유지하고, 그 다음부터 지정된 JSON 스키마와 "
+        "정확히 같은 구조의 JSON 객체 하나만 반환하세요. "
+        "마크다운, 설명 문장, 코드블록은 쓰지 마세요. "
+        "예시나 템플릿 문장을 베끼지 말고, 이번에 첨부된 사진에서 실제로 관찰한 대상·위치·상태만 근거로 "
+        "모든 문장을 새로 작성하세요. 서로 다른 항목에 같은 문장을 반복하지 마세요. "
+        "positive_points/critical_issues/improvement_suggestions/criteria_evaluations의 각 항목 앞에 "
+        "번호나 순서 표시(예: \"1.\", \"강점 1.\", \"문제 2.\")를 붙이지 말고 문장으로 바로 시작하세요. "
+        "criteria_evaluations는 요청받은 평가 항목 전체에 대해 각각 작성하고, 항목마다 evidence/issue/suggestion을 "
+        "서로 다르게, 그 항목에만 해당하는 내용으로 쓰세요."
     )

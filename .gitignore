@@ -24,6 +24,11 @@ temp/
 *.bak
 *.swp
 
+# Node/Vite frontend
+node_modules/
+app/static/dist/
+.vercel
+
 # OS and editor files
 .DS_Store
 Thumbs.db
@@ -31,9 +36,12 @@ desktop.ini
 .vscode/
 .idea/
 
-# Codex/local workspace metadata
+# Claude Code / Codex local workspace metadata
+.claude/
 .agents/
 .codex/
+*.tgz
+skills-lock.json
 
 # Generated VMD analysis outputs
 outputs/**

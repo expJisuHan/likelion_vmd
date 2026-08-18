@@ -3,12 +3,32 @@
   --ink: #111111;
   --muted: #6f6a61;
   --line: #ded8ce;
-  --panel: rgba(255, 255, 255, 0.76);
+  --panel: rgba(255, 255, 255, 0.92);
   --panel-strong: #ffffff;
   --gold: #b79b61;
   --gold-soft: #eadfca;
   --black: #050505;
-  --shadow: 0 24px 80px rgba(17, 17, 17, 0.08);
+  --shadow: 0 18px 40px rgba(17, 17, 17, 0.08);
+}
+
+@keyframes heroFloat {
+  from {
+    transform: translateY(0px);
+  }
+  to {
+    transform: translateY(-8px);
+  }
+}
+
+@keyframes heroGlow {
+  from {
+    transform: translateX(0) scale(1);
+    opacity: 0.48;
+  }
+  to {
+    transform: translateX(-12px) scale(1.08);
+    opacity: 0.22;
+  }
 }
 
 * {
@@ -18,10 +38,7 @@
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.9), rgba(247, 245, 240, 0.72)),
-    radial-gradient(circle at top right, rgba(183, 155, 97, 0.12), transparent 34%),
-    var(--bg);
+  background: linear-gradient(180deg, var(--bg), #f3eee6);
   color: var(--ink);
   font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
   letter-spacing: 0;
@@ -34,6 +51,34 @@ textarea {
   font: inherit;
 }
 
+button,
+button.primary,
+button.secondary,
+.download-link,
+.icon-button,
+.tab-button,
+input,
+select,
+textarea,
+label {
+  transition: background 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+.tab-button:focus-visible,
+.icon-button:focus-visible,
+.download-link:focus-visible {
+  outline: 2px solid rgba(183, 155, 97, 0.8);
+  outline-offset: 3px;
+}
+
+.tab-button:hover {
+  color: var(--black);
+}
+
 .shell {
   width: min(1440px, calc(100% - 48px));
   margin: 0 auto;
@@ -41,18 +86,41 @@ textarea {
 }
 
 .hero {
-  min-height: 220px;
+  position: relative;
+  min-height: 180px;
   display: flex;
   justify-content: space-between;
-  gap: 32px;
+  gap: 24px;
   align-items: flex-end;
-  border-bottom: 1px solid var(--line);
-  padding-bottom: 32px;
-  margin-bottom: 28px;
+  border-bottom: 1px solid rgba(222, 216, 206, 0.9);
+  padding-bottom: 28px;
+  margin-bottom: 24px;
+  animation: heroFloat 12s ease-in-out infinite alternate;
+  overflow: hidden;
+}
+
+.hero::before {
+  content: '';
+  position: absolute;
+  right: -60px;
+  top: -40px;
+  width: 260px;
+  height: 260px;
+  border-radius: 50%;
+  background: rgba(183, 155, 97, 0.14);
+  filter: blur(10px);
+  opacity: 0.35;
+  animation: heroGlow 14s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+.hero > div {
+  position: relative;
+  z-index: 1;
 }
 
 .eyebrow {
-  margin: 0 0 18px;
+  margin: 0 0 16px;
   color: var(--gold);
   font-size: 12px;
   font-weight: 700;
@@ -68,8 +136,8 @@ p {
 
 h1 {
   margin-bottom: 18px;
-  font-size: clamp(48px, 8vw, 112px);
-  line-height: 0.9;
+  font-size: clamp(36px, 6vw, 72px);
+  line-height: 1.05;
   font-weight: 700;
 }
 
@@ -77,7 +145,7 @@ h1 {
   max-width: 680px;
   margin-bottom: 0;
   color: var(--muted);
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.7;
 }
 
@@ -124,10 +192,10 @@ h1 {
 }
 
 .panel {
-  border: 1px solid var(--line);
+  border: 1px solid rgba(222, 216, 206, 0.95);
   background: var(--panel);
   box-shadow: var(--shadow);
-  backdrop-filter: blur(18px);
+  backdrop-filter: blur(14px);
 }
 
 .input-panel,
@@ -172,16 +240,17 @@ h1 {
   place-items: center;
   gap: 8px;
   text-align: center;
-  border: 1px dashed #bbb1a2;
-  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid #c8bcae;
+  background: rgba(255, 255, 255, 0.82);
   cursor: pointer;
-  transition: border-color 160ms ease, background 160ms ease;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
 }
 
 .dropzone:hover,
 .dropzone.dragging {
   border-color: var(--gold);
-  background: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.92);
+  transform: translateY(-1px);
 }
 
 .dropzone input {
@@ -510,10 +579,42 @@ button.primary {
   color: #fff;
 }
 
+button.primary:hover,
+button.primary:focus-visible {
+  background: #2f2f2f;
+  transform: translateY(-1px) scale(1.01);
+}
+
 button.secondary,
 .download-link {
   background: transparent;
   color: var(--black);
+}
+
+button.secondary:hover,
+.download-link:hover,
+button.secondary:focus-visible,
+.download-link:focus-visible {
+  border-color: var(--black);
+  background: rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
+}
+
+.icon-button:hover,
+.icon-button:focus-visible,
+.tab-button:hover,
+.tab-button:focus-visible {
+  transform: translateY(-1px);
+}
+
+.tab-button:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.tab-button.active {
+  border-bottom-color: var(--black);
+  color: var(--black);
+  background: rgba(0, 0, 0, 0.03);
 }
 
 button:disabled {
@@ -653,7 +754,7 @@ button:disabled {
   color: #3d3932;
   line-height: 1.55;
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  line-clamp: 3;
 }
 
 .history-pagination,

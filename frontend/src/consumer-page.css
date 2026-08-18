@@ -1,0 +1,652 @@
+/* 소비자 페이지: 유니버설 디자인 원칙(공평한 사용, 쉬운 이해, 오류 허용, 낮은 신체적 부담,
+   접근에 충분한 크기)을 따르기 위한 전용 스타일. 색만으로 정보를 전달하지 않고,
+   글자/대비 조절, 큰 터치 영역, 뚜렷한 포커스 표시를 기본 제공합니다.
+
+   색 토큰은 별도로 새로 정의하지 않고 앱 전역 :root 토큰(styles.css의 --bg/--ink/--line/
+   --gold/--panel-strong)을 그대로 가져다 씁니다. 그래야 홈페이지·소비자 페이지가 항상 같은
+   배경/포인트 색을 쓰게 되어 배경 색이 미묘하게 어긋나 보이는 일이 없습니다. 페이지 바깥
+   배경은 아예 투명(--cp-bg: transparent)으로 두어 body의 그라데이션이 그대로 비치게 하고,
+   대비 모드에서만 흑백으로 덮어씁니다.
+
+   모서리 반경 체계는 하나로 통일합니다(카드 16px · 버튼 12px · 알약형 토글 999px). */
+
+.cp-page {
+  --cp-bg: transparent;
+  --cp-surface: var(--panel-strong, #ffffff);
+  --cp-ink: var(--ink, #111111);
+  --cp-muted: #4b473f;
+  --cp-line: var(--line, #ded8ce);
+  --cp-line-strong: var(--gold, #b79b61);
+  --cp-accent: var(--ink, #111111);
+  --cp-accent-strong: #000000;
+  --cp-accent-ink: #ffffff;
+  --cp-highlight: var(--gold, #b79b61);
+  --cp-highlight-soft: var(--gold-soft, #eadfca);
+  --cp-error: #9a2c1d;
+  --cp-error-bg: #fdecea;
+  --cp-focus: #1a56db;
+
+  --cp-radius-card: 16px;
+  --cp-radius-btn: 12px;
+  --cp-radius-input: 10px;
+  --cp-radius-pill: 999px;
+
+  font-family: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+    'Apple SD Gothic Neo', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  font-size: 18px;
+  line-height: 1.65;
+  color: var(--cp-ink);
+  background: var(--cp-bg);
+  border-radius: var(--cp-radius-card);
+  padding: 28px 24px 72px;
+}
+
+.cp-page.cp-contrast {
+  --cp-bg: #ffffff;
+  --cp-surface: #ffffff;
+  --cp-ink: #000000;
+  --cp-muted: #1a1a1a;
+  --cp-line: #000000;
+  --cp-line-strong: #000000;
+  --cp-accent: #000000;
+  --cp-accent-strong: #000000;
+  --cp-accent-ink: #ffffff;
+  --cp-highlight: #000000;
+  --cp-highlight-soft: #e6e6e6;
+  --cp-error: #7a0000;
+  --cp-error-bg: #ffe0e0;
+  --cp-focus: #0033cc;
+}
+
+.cp-page.cp-text-large { font-size: 21px; }
+.cp-page.cp-text-xlarge { font-size: 25px; }
+
+.cp-page * {
+  box-sizing: border-box;
+}
+
+.cp-page h2,
+.cp-page h3 {
+  color: var(--cp-ink);
+  line-height: 1.35;
+  font-weight: 800;
+}
+
+.cp-page h2 { font-size: 1.4em; margin: 0 0 0.4em; }
+.cp-page h3 { font-size: 1.1em; margin: 0 0 0.5em; }
+
+.cp-page p { margin: 0.5em 0; }
+
+.cp-page button,
+.cp-page input,
+.cp-page select,
+.cp-page textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.cp-page svg {
+  flex-shrink: 0;
+}
+
+/* 포커스 표시: 색만이 아니라 두꺼운 이중 테두리로 어디에 초점이 있는지 명확히 보여줍니다. */
+.cp-page a:focus-visible,
+.cp-page button:focus-visible,
+.cp-page input:focus-visible,
+.cp-page select:focus-visible,
+.cp-page textarea:focus-visible,
+.cp-page [tabindex]:focus-visible {
+  outline: 3px solid var(--cp-focus);
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px rgba(26, 86, 219, 0.18);
+}
+
+.cp-page.cp-contrast a:focus-visible,
+.cp-page.cp-contrast button:focus-visible,
+.cp-page.cp-contrast input:focus-visible,
+.cp-page.cp-contrast select:focus-visible,
+.cp-page.cp-contrast textarea:focus-visible,
+.cp-page.cp-contrast [tabindex]:focus-visible {
+  box-shadow: 0 0 0 6px rgba(0, 51, 204, 0.25);
+}
+
+/* 고대비 모드에서는 은은한 화이트 그라데이션 대신 순수한 흰색 배경만 사용합니다. */
+.cp-page.cp-contrast .cp-dropzone,
+.cp-page.cp-contrast .cp-camera-panel,
+.cp-page.cp-contrast .cp-summary-item,
+.cp-page.cp-contrast .cp-step,
+.cp-page.cp-contrast .cp-result {
+  background: #ffffff;
+  box-shadow: none;
+}
+
+.cp-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cp-sr-only:focus-visible {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0.6em;
+  margin: 0.5em 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+}
+
+.cp-skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 100;
+  background: var(--cp-ink);
+  color: #fff;
+  padding: 0.8em 1.2em;
+  border-radius: 0 0 8px 0;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.cp-skip-link:focus {
+  left: 0;
+}
+
+/* 접근성 도구 모음: 타이틀/설명 없이 도구모음만 상단에 둡니다.
+   아래 .cp-main과 같은 max-width로 맞춰서, 도구모음 좌우 끝이 카드들의
+   좌우 끝과 정확히 나란히 맞도록 합니다. 오른쪽에 치우치지 않도록 도구모음이
+   전체 너비를 채우고, 그 안에서 글자 크기 그룹은 왼쪽에, 고대비 버튼은
+   오른쪽에 놓이도록 넓게 펼칩니다. */
+.cp-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  max-width: 860px;
+  margin: 0 auto 28px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid var(--cp-line);
+}
+
+.cp-a11y-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  background: var(--cp-surface);
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-btn);
+  padding: 12px 28px;
+}
+
+.cp-toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-toolbar-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 1em;
+  font-weight: 700;
+  color: var(--cp-muted);
+  margin-right: 8px;
+}
+
+.cp-a11y-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 14px;
+  border: 1px solid var(--cp-line-strong);
+  background: var(--cp-surface);
+  border-radius: var(--cp-radius-pill);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-a11y-toolbar button[aria-pressed="true"] {
+  background: var(--cp-accent);
+  color: var(--cp-accent-ink);
+  border-color: var(--cp-accent);
+}
+
+.cp-contrast-toggle {
+  white-space: nowrap;
+}
+
+/* 본문 레이아웃: 한 번에 하나씩, 위에서 아래로 진행되는 단순한 구조 */
+.cp-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  max-width: 860px;
+  margin: 0 auto;
+}
+
+.cp-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.cp-step {
+  background: var(--cp-surface);
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-card);
+  padding: 24px 24px 28px;
+  box-shadow: 0 6px 18px rgba(17, 17, 17, 0.04);
+}
+
+/* 사진 올리기 섹션은 전체적으로 조금 더 여유 있게 키웁니다(약 1.6배 높이). */
+.cp-step-photo {
+  padding: 40px 40px 48px;
+}
+
+.cp-step-photo .cp-step-desc {
+  font-size: 1.05em;
+  font-weight: 600;
+}
+
+.cp-step h2 {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cp-step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  background: var(--cp-accent);
+  color: var(--cp-accent-ink);
+  font-size: 0.75em;
+  flex-shrink: 0;
+}
+
+.cp-step-desc {
+  color: var(--cp-muted);
+  margin-top: 0;
+}
+
+.cp-help-text {
+  color: var(--cp-muted);
+}
+
+/* 업로드 영역: "사진 선택" 칸과 "카메라 촬영" 칸을 반반 너비로 나란히 배치합니다.
+   홈페이지의 드롭존/결과 카드와 같은 은은한 화이트 그라데이션으로 안쪽 여백을
+   표현합니다(바깥 페이지 배경과 다른 톤을 쓰지 않도록). */
+.cp-upload-row {
+  display: flex;
+  align-items: stretch;
+  gap: 24px;
+  margin-top: 24px;
+}
+
+/* 사진 선택 / 카메라 촬영 칸: 아이콘을 위, 글자를 아래에 두고 가운데 정렬해서
+   큰 터치 영역을 채웁니다(가로 배치보다 빈 공간이 덜 남습니다). */
+.cp-dropzone {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  min-height: 320px;
+  border: 2px dashed var(--cp-line-strong);
+  border-radius: var(--cp-radius-btn);
+  padding: 40px 32px;
+  cursor: pointer;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.98));
+  text-align: center;
+}
+
+.cp-dropzone:hover,
+.cp-dropzone:focus-within {
+  border-color: var(--cp-highlight);
+}
+
+/* 촬영 칸은 <button>이라 브라우저 기본 글꼴/정렬을 dropzone과 동일하게 맞춰줍니다. */
+.cp-capture-box {
+  font: inherit;
+}
+
+.cp-capture-box[aria-pressed="true"] {
+  border-style: solid;
+  border-color: var(--cp-highlight);
+}
+
+.cp-dropzone-icon {
+  display: inline-flex;
+  color: var(--cp-highlight);
+}
+
+.cp-dropzone-title {
+  display: block;
+  font-weight: 800;
+  font-size: 1.5em;
+  margin-bottom: 0.3em;
+}
+
+.cp-dropzone-copy {
+  display: block;
+  color: var(--cp-muted);
+  font-weight: 600;
+  font-size: 1.05em;
+}
+
+.cp-camera-panel {
+  margin-top: 14px;
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-btn);
+  padding: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.98));
+}
+
+.cp-camera-status {
+  font-weight: 700;
+  margin-top: 0;
+}
+
+.cp-camera-preview {
+  width: 100%;
+  max-height: 320px;
+  object-fit: cover;
+  border-radius: var(--cp-radius-input);
+  background: #000;
+  display: block;
+  margin-bottom: 12px;
+}
+
+.cp-image-count {
+  font-weight: 700;
+  margin-top: 18px;
+}
+
+.cp-thumb-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 14px;
+}
+
+.cp-thumb-card {
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-input);
+  overflow: hidden;
+  background: var(--cp-surface);
+}
+
+.cp-thumb-card img {
+  width: 100%;
+  height: 120px;
+  object-fit: cover;
+  display: block;
+}
+
+.cp-thumb-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 44px;
+  border: 0;
+  border-top: 1px solid var(--cp-line);
+  background: var(--cp-surface);
+  cursor: pointer;
+  font-size: 0.85em;
+  font-weight: 700;
+  padding: 6px 8px;
+}
+
+.cp-thumb-remove:hover {
+  background: var(--cp-error-bg);
+  color: var(--cp-error);
+}
+
+/* 버튼 */
+.cp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 10px 22px;
+  border-radius: var(--cp-radius-btn);
+  font-weight: 700;
+  cursor: pointer;
+  border: 1px solid var(--cp-accent);
+}
+
+.cp-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* .cp-page 접두사로 specificity를 위에 있는 ".cp-page button { color: inherit }"
+   리셋 규칙보다 높여, 버튼 색이 항상 의도한 값으로 렌더링되도록 고정합니다.
+   (이 접두사가 없으면 리셋 규칙이 이겨서 고대비 모드에서 검정 배경에 검정 글씨가
+   되어 버튼 글자가 사라지는 대비 버그가 생깁니다.) */
+.cp-page .cp-btn-primary {
+  background: var(--cp-accent);
+  color: var(--cp-accent-ink);
+}
+
+.cp-page .cp-btn-primary:hover:not(:disabled) {
+  background: var(--cp-accent-strong);
+  border-color: var(--cp-accent-strong);
+}
+
+.cp-page .cp-btn-outline {
+  background: var(--cp-surface);
+  color: var(--cp-ink);
+  border-color: var(--cp-line-strong);
+}
+
+.cp-page .cp-btn-outline:hover:not(:disabled) {
+  border-color: var(--cp-highlight);
+  color: var(--cp-ink);
+}
+
+/* 눌렀을 때의 촉각적 피드백. 모션에 민감한 사용자를 위해 아래에서 비활성화합니다. */
+.cp-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.cp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.cp-status-text,
+.cp-error-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 700;
+  margin-top: 14px;
+}
+
+.cp-error-text {
+  color: var(--cp-error);
+  background: var(--cp-error-bg);
+  border: 1px solid var(--cp-error);
+  border-radius: var(--cp-radius-input);
+  padding: 10px 14px;
+}
+
+.cp-retake-flag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--cp-error);
+  font-size: 0.6em;
+  font-weight: 700;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* 회전 스피너: 애니메이션에 민감한 사용자를 위해 reduced-motion에서는 멈춥니다 */
+.cp-spin {
+  animation: cp-spin 1s linear infinite;
+}
+
+@keyframes cp-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 결과 영역 */
+.cp-result {
+  background: var(--cp-surface);
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-card);
+  padding: 26px;
+  box-shadow: 0 6px 18px rgba(17, 17, 17, 0.04);
+}
+
+.cp-result h2 {
+  outline: none;
+}
+
+.cp-summary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0 0 24px;
+}
+
+.cp-summary-item {
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-input);
+  padding: 14px 16px;
+  background: linear-gradient(180deg, #ffffff, #fbfaf8);
+}
+
+.cp-summary-item dt {
+  font-size: 0.8em;
+  color: var(--cp-muted);
+  font-weight: 700;
+}
+
+.cp-summary-item dd {
+  margin: 4px 0 0;
+  font-size: 1.15em;
+  font-weight: 800;
+}
+
+.cp-result-section {
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid var(--cp-line);
+}
+
+.cp-result-section:first-of-type {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.cp-result-section ul {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cp-criteria-results {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cp-criteria-results li {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--cp-line);
+}
+
+.cp-criteria-results li:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.cp-criteria-results strong {
+  display: block;
+}
+
+.cp-criteria-results span {
+  display: inline-block;
+  color: var(--cp-muted);
+  font-weight: 700;
+  margin: 2px 0 6px;
+}
+
+.cp-criteria-results p {
+  margin: 0;
+}
+
+.cp-downloads {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--cp-line);
+}
+
+/* 큰 화면에서도 한 줄에 너무 넓게 퍼지지 않도록, 작은 화면에서는 여백을 줄여
+   가독성과 손가락 조작을 함께 지원 */
+@media (max-width: 560px) {
+  .cp-page {
+    padding: 18px 14px 52px;
+  }
+
+  .cp-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .cp-upload-row {
+    flex-direction: column;
+  }
+}
+
+/* 움직임에 민감한 사용자를 위해 애니메이션 최소화 */
+@media (prefers-reduced-motion: reduce) {
+  .cp-page * {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  .cp-btn:active:not(:disabled) {
+    transform: none;
+  }
+}

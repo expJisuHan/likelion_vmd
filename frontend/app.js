@@ -15,7 +15,15 @@ const HISTORY_ASSET_DB_NAME = "ax-rnd-vmd-history-assets-v1";
 const HISTORY_ASSET_STORE_NAME = "images";
 const PREVIEW_COLLAPSED_COUNT = 4;
 const HISTORY_PAGE_SIZE = 5;
+// 업로드 전 리사이즈 목표치: Vercel Function 요청 바디 4.5MB 제한을 안전하게 피하기 위한 값.
+// 백엔드가 NIM 호출 전 1280px/180KB로 한 번 더 줄이기 때문에 이보다 훨씬 높은 화질이라 정확도 손실은 없음.
+const UPLOAD_MAX_DIMENSION = 1920;
+const UPLOAD_TARGET_BYTES = 700000;
+const EXCEL_MIME_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const PDF_MIME_TYPE = "application/pdf";
 let historyAssetDbPromise = null;
+let lastExcelBlobUrl = "";
+let lastPdfBlobUrl = "";
 
 const imageInput = document.getElementById("imageInput");
 const cameraFallbackInput = document.getElementById("cameraFallbackInput");
@@ -286,42 +294,6 @@ async function saveBatchHistory(payload) {
   }
 }
 
-async function saveBatchHistory(payload) {
-  const results = Array.isArray(payload.results) ? payload.results : [];
-  const items = await Promise.all(results.map(async (item) => {
-    const sourceImage = state.images.find((image) => image.name === item.imageName);
-    return {
-      imageName: item.imageName || "image",
-      result: item.result || {},
-      jsonPath: item.jsonPath || "",
-      status: item.status || "success",
-      error: item.error || "",
-      thumbnail: await makeThumbnail(sourceImage),
-      originalImage: sourceImage?.dataUrl || "",
-    };
-  }));
-  if (!items.length) {
-    return;
-  }
-  const entry = {
-    id: makeHistoryId(),
-    kind: "batch-group",
-    createdAt: new Date().toISOString(),
-    imageCount: items.length,
-    imageNames: items.map((item) => item.imageName),
-    items,
-    result: items[0].result,
-    jsonPath: items[0].jsonPath,
-    downloadUrl: payload.downloadUrl || "",
-    pdfDownloadUrl: payload.pdfDownloadUrl || "",
-    thumbnail: items[0].thumbnail || "",
-    thumbnails: items.map((item) => item.thumbnail).filter(Boolean),
-  };
-  const originalImages = items.map((item) => item.originalImage || "");
-  items.forEach((item) => delete item.originalImage);
-  await saveHistoryAssets(entry.id, originalImages);
-  addHistoryEntries([entry]);
-}
 
 function setProgress(message) {
   progressText.textContent = message;
@@ -380,14 +352,54 @@ function optionsPayload() {
     focusKeywords: state.focusKeywords,
     extraCriteria: document.getElementById("extraCriteria").value.trim(),
     temperature: 0.2,
-    maxTokens: 2200,
+    maxTokens: 6000,
   };
+}
+
+function dataUrlByteLength(dataUrl) {
+  const base64 = dataUrl.split(",")[1] || "";
+  return Math.floor((base64.length * 3) / 4);
+}
+
+function resizeImageDataUrl(dataUrl, maxDimension, targetBytes) {
+  return new Promise((resolve) => {
+    if (dataUrlByteLength(dataUrl) <= targetBytes) {
+      resolve(dataUrl);
+      return;
+    }
+    const source = new Image();
+    source.onload = () => {
+      const scale = Math.min(1, maxDimension / Math.max(source.naturalWidth, source.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(source.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(source.naturalHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) {
+        resolve(dataUrl);
+        return;
+      }
+      context.drawImage(source, 0, 0, canvas.width, canvas.height);
+      let output = dataUrl;
+      for (const quality of [0.85, 0.75, 0.65, 0.5, 0.35]) {
+        output = canvas.toDataURL("image/jpeg", quality);
+        if (dataUrlByteLength(output) <= targetBytes) {
+          break;
+        }
+      }
+      resolve(output);
+    };
+    source.onerror = () => resolve(dataUrl);
+    source.src = dataUrl;
+  });
 }
 
 function readFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve({ name: file.name, type: file.type, dataUrl: reader.result });
+    reader.onload = async () => {
+      const dataUrl = await resizeImageDataUrl(reader.result, UPLOAD_MAX_DIMENSION, UPLOAD_TARGET_BYTES);
+      resolve({ name: file.name, type: file.type, dataUrl });
+    };
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
@@ -433,7 +445,7 @@ function stopCamera() {
   cameraPanel.classList.add("hidden");
 }
 
-function capturePhoto() {
+async function capturePhoto() {
   if (!state.cameraStream) {
     return;
   }
@@ -447,10 +459,15 @@ function capturePhoto() {
     return;
   }
   context.drawImage(cameraPreview, 0, 0, width, height);
+  const dataUrl = await resizeImageDataUrl(
+    canvas.toDataURL("image/jpeg", 0.92),
+    UPLOAD_MAX_DIMENSION,
+    UPLOAD_TARGET_BYTES
+  );
   state.images.push({
     name: cameraFileName(),
     type: "image/jpeg",
-    dataUrl: canvas.toDataURL("image/jpeg", 0.92),
+    dataUrl,
   });
   renderPreviews();
 }
@@ -656,45 +673,6 @@ function renderHistory() {
   });
 }
 
-function openHistoryDetail(entry) {
-  const result = entry.result || {};
-  const photo = result.photo_quality || {};
-  const mannequin = result.mannequin || {};
-  document.getElementById("historyDetailTitle").textContent = historyTitle(entry);
-  document.getElementById("historyDetailMeta").textContent = `${formatHistoryDate(entry.createdAt)} · ${entry.imageNames?.join(", ") || entry.imageName || "저장 결과"}`;
-  document.getElementById("historyTotalScore").textContent = result.total_score ?? "--";
-  document.getElementById("historyGrade").textContent = result.grade || "평가 보류";
-  document.getElementById("historyZoneResult").textContent = `${result.user_selected_zone || "VP"} → ${result.ai_detected_zone || "UNKNOWN"}`;
-  document.getElementById("historyZoneConfidence").textContent = `confidence ${Math.round((result.zone_confidence || 0) * 100)}%`;
-  document.getElementById("historyPhotoScore").textContent = photo.score ?? "--";
-  document.getElementById("historyRetakeFlag").textContent = photo.needs_retake ? "재촬영 권장" : "촬영 사용 가능";
-  document.getElementById("historyMannequinFlag").textContent = mannequin.exists ? "있음" : "없음";
-  document.getElementById("historyMannequinType").textContent = mannequin.type || "type --";
-  document.getElementById("historyPhotoComment").textContent = photo.comment || "사진 품질 코멘트가 없습니다.";
-  document.getElementById("historyMannequinComment").textContent = mannequin.exists
-    ? mannequin.comment || "마네킹 판정 근거가 없습니다."
-    : "사진에서 마네킹이 감지되지 않았습니다.";
-  document.getElementById("historyFinalSummary").textContent = result.final_summary || "최종 요약이 없습니다.";
-  renderCriteriaEvaluations(result, "historyScoreBars");
-  renderList("historyPositivePoints", result.positive_points || []);
-  renderList("historyCriticalIssues", result.critical_issues || []);
-  renderList("historyImprovements", result.improvement_suggestions || []);
-  renderObstacles(result.obstacles || [], "historyObstacles");
-
-  const detailDownloadLink = document.getElementById("historyDownloadLink");
-  detailDownloadLink.classList.toggle("hidden", !entry.downloadUrl);
-  if (entry.downloadUrl) {
-    detailDownloadLink.href = entry.downloadUrl;
-  }
-  historyPdfDownloadLink.classList.toggle("hidden", !entry.pdfDownloadUrl);
-  if (entry.pdfDownloadUrl) {
-    historyPdfDownloadLink.href = entry.pdfDownloadUrl;
-  }
-  document.getElementById("historyJsonPath").textContent = entry.jsonPath ? `JSON: ${entry.jsonPath}` : "";
-  historyModal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
-}
-
 function closeHistoryDetail() {
   historyModal.classList.add("hidden");
   document.body.classList.remove("modal-open");
@@ -801,100 +779,6 @@ function renderHistoryPhotoList(entry, selectedIndex = 0) {
     button.appendChild(content);
     historyPhotoList.appendChild(button);
   });
-}
-
-function renderHistoryStory(entry) {
-  const result = entry.result || {};
-  const photo = result.photo_quality || {};
-  const mannequin = result.mannequin || {};
-  historyStoryViewport.innerHTML = "";
-
-  const overview = createStorySlide("종합 결과");
-  const metrics = document.createElement("div");
-  metrics.className = "result-grid history-result-grid";
-  metrics.append(
-    createStoryMetric("score-card", "Total Score", String(result.total_score ?? "--"), result.grade || "--"),
-    createStoryMetric("metric-card", "Zone", `${result.user_selected_zone || "VP"} / ${result.ai_detected_zone || "UNKNOWN"}`, `confidence ${Math.round((result.zone_confidence || 0) * 100)}%`),
-    createStoryMetric("metric-card", "Photo Quality", String(photo.score ?? "--"), photo.needs_retake ? "retake recommended" : "ready to use"),
-    createStoryMetric("metric-card", "Mannequin", mannequin.exists ? "Detected" : "Not detected", mannequin.type || "type --"),
-  );
-  const overviewLayout = document.createElement("div");
-  overviewLayout.className = "detail-layout";
-  const imageBlock = createStoryBlock("Analysis Image");
-  if (entry.thumbnail) {
-    const image = document.createElement("img");
-    image.className = "history-story-image";
-    image.src = entry.thumbnail;
-    image.alt = entry.imageName || entry.imageNames?.join(", ") || "Analysis image";
-    imageBlock.appendChild(image);
-  } else {
-    const placeholder = document.createElement("p");
-    placeholder.className = "body-text";
-    placeholder.textContent = "No preview image";
-    imageBlock.appendChild(placeholder);
-  }
-  const overviewBlock = createStoryBlock("Summary");
-  const overviewText = document.createElement("p");
-  overviewText.className = "body-text";
-  overviewText.textContent = historyText(result.zone_evaluation_summary || result.final_summary);
-  overviewBlock.appendChild(overviewText);
-  overviewLayout.append(imageBlock, overviewBlock);
-  overview.append(metrics, overviewLayout);
-  historyStoryViewport.appendChild(overview);
-
-  const criteriaSlide = createStorySlide("항목별 평가");
-  const criteriaBlock = createStoryBlock("항목별 평가");
-  const criteriaRoot = document.createElement("div");
-  criteriaRoot.className = "score-bars";
-  renderCriteriaEvaluations(result, criteriaRoot);
-  criteriaBlock.appendChild(criteriaRoot);
-  criteriaSlide.appendChild(criteriaBlock);
-  historyStoryViewport.appendChild(criteriaSlide);
-
-  const photoSlide = createStorySlide("사진 품질");
-  const photoLayout = document.createElement("div");
-  photoLayout.className = "detail-layout";
-  const photoBlock = createStoryBlock("사진 품질");
-  const photoText = document.createElement("p");
-  photoText.className = "body-text";
-  photoText.textContent = historyText(photo.comment);
-  photoBlock.appendChild(photoText);
-  const mannequinBlock = createStoryBlock("마네킹");
-  const mannequinText = document.createElement("p");
-  mannequinText.className = "body-text";
-  mannequinText.textContent = historyText(mannequin.comment, mannequin.exists ? mannequin.type || "Detected" : "Not detected");
-  mannequinBlock.appendChild(mannequinText);
-  photoLayout.append(photoBlock, mannequinBlock);
-  photoSlide.appendChild(photoLayout);
-  historyStoryViewport.appendChild(photoSlide);
-
-  historyStoryViewport.appendChild(createStoryListBlock("잘된 점", result.positive_points));
-  historyStoryViewport.lastElementChild.dataset.title = "잘된 점";
-  historyStoryViewport.appendChild(createStoryListBlock("문제점", result.critical_issues || result.detected_issues));
-  historyStoryViewport.lastElementChild.dataset.title = "문제점";
-  historyStoryViewport.appendChild(createStoryListBlock("개선 제안", result.improvement_suggestions || result.improvement_actions));
-  historyStoryViewport.lastElementChild.dataset.title = "개선 제안";
-
-  const summarySlide = createStorySlide("최종 요약");
-  const summaryBlock = createStoryBlock("최종 요약");
-  const summaryText = document.createElement("p");
-  summaryText.className = "body-text";
-  summaryText.textContent = historyText(result.final_summary || result.overall_improvement_summary);
-  summaryBlock.appendChild(summaryText);
-  summarySlide.appendChild(summaryBlock);
-  historyStoryViewport.appendChild(summarySlide);
-
-  const obstaclesSlide = createStorySlide("방해 요소");
-  const obstaclesBlock = createStoryBlock("방해 요소");
-  const obstaclesRoot = document.createElement("div");
-  obstaclesRoot.className = "pill-list";
-  renderObstacles(Array.isArray(result.obstacles) ? result.obstacles : [], obstaclesRoot);
-  obstaclesBlock.appendChild(obstaclesRoot);
-  obstaclesSlide.appendChild(obstaclesBlock);
-  historyStoryViewport.appendChild(obstaclesSlide);
-
-  state.historyStoryIndex = 0;
-  showHistoryStory(0);
 }
 
 function renderHistoryStory(entry, startImageIndex = 0) {
@@ -1043,85 +927,6 @@ function showHistoryStory(index) {
   historyStoryNextBtn.disabled = state.historyStoryIndex === slides.length - 1;
 }
 
-function renderHistory() {
-  historyCount.textContent = String(state.history.length);
-  historyGrid.innerHTML = "";
-  const totalPages = Math.max(1, Math.ceil(state.history.length / HISTORY_PAGE_SIZE));
-  state.historyPage = Math.max(0, Math.min(state.historyPage, totalPages - 1));
-  const start = state.historyPage * HISTORY_PAGE_SIZE;
-  const pageEntries = state.history.slice(start, start + HISTORY_PAGE_SIZE);
-  historyEmpty.classList.toggle("hidden", state.history.length > 0);
-  historyPagination.classList.toggle("hidden", state.history.length <= HISTORY_PAGE_SIZE);
-  historyPageLabel.textContent = `${state.history.length ? state.historyPage + 1 : 1} / ${totalPages}`;
-  historyPrevBtn.disabled = state.historyPage === 0;
-  historyNextBtn.disabled = state.historyPage >= totalPages - 1;
-
-  pageEntries.forEach((entry) => {
-    const result = entry.result || {};
-    const row = document.createElement("button");
-    row.type = "button";
-    row.className = "history-card";
-    row.addEventListener("click", () => openHistoryDetail(entry));
-
-    if (entry.thumbnail) {
-      const image = document.createElement("img");
-      image.src = entry.thumbnail;
-      image.alt = entry.imageName || "Analysis image";
-      image.className = "history-card-image";
-      row.appendChild(image);
-    } else {
-      const placeholder = document.createElement("div");
-      placeholder.className = "history-card-image history-card-placeholder";
-      placeholder.textContent = "VMD";
-      row.appendChild(placeholder);
-    }
-
-    const content = document.createElement("div");
-    content.className = "history-card-content";
-    const heading = document.createElement("div");
-    heading.className = "history-card-heading";
-    const title = document.createElement("strong");
-    title.textContent = historyTitle(entry);
-    const date = document.createElement("time");
-    date.textContent = formatHistoryDate(entry.createdAt);
-    heading.append(title, date);
-    const metrics = document.createElement("div");
-    metrics.className = "history-card-metrics";
-    const score = document.createElement("strong");
-    score.textContent = `${result.total_score ?? "--"}`;
-    const grade = document.createElement("span");
-    grade.textContent = result.grade || entry.status || "--";
-    const zone = document.createElement("span");
-    zone.textContent = result.user_selected_zone || "VP";
-    metrics.append(score, grade, zone);
-    const summary = document.createElement("p");
-    summary.textContent = result.final_summary || entry.error || "Open result details";
-    content.append(heading, metrics, summary);
-    row.appendChild(content);
-    historyGrid.appendChild(row);
-  });
-}
-
-function openHistoryDetail(entry) {
-  state.activeHistoryEntry = entry;
-  document.getElementById("historyDetailTitle").textContent = historyTitle(entry);
-  document.getElementById("historyDetailMeta").textContent = `${formatHistoryDate(entry.createdAt)} · ${entry.imageNames?.join(", ") || entry.imageName || "Saved result"}`;
-  renderHistoryStory(entry);
-
-  const detailDownloadLink = document.getElementById("historyDownloadLink");
-  detailDownloadLink.classList.toggle("hidden", !entry.downloadUrl);
-  if (entry.downloadUrl) {
-    detailDownloadLink.href = entry.downloadUrl;
-  }
-  historyPdfDownloadLink.classList.toggle("hidden", !entry.pdfDownloadUrl);
-  if (entry.pdfDownloadUrl) {
-    historyPdfDownloadLink.href = entry.pdfDownloadUrl;
-  }
-  document.getElementById("historyJsonPath").textContent = entry.jsonPath ? `JSON: ${entry.jsonPath}` : "";
-  historyModal.classList.remove("hidden");
-  document.body.classList.add("modal-open");
-}
-
 async function openHistoryDetail(entry) {
   state.activeHistoryEntry = entry;
   document.getElementById("historyDetailTitle").textContent = historyTitle(entry);
@@ -1158,6 +963,50 @@ function setupTabs() {
   });
 }
 
+function base64ToBlob(base64, mimeType) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function setDownloadLinkFromBase64(linkEl, base64, mimeType, fileName, prevBlobUrl) {
+  if (!base64) {
+    return prevBlobUrl;
+  }
+  if (prevBlobUrl) {
+    URL.revokeObjectURL(prevBlobUrl);
+  }
+  const url = URL.createObjectURL(base64ToBlob(base64, mimeType));
+  linkEl.href = url;
+  linkEl.setAttribute("download", fileName || "download");
+  linkEl.classList.remove("hidden");
+  return url;
+}
+
+function applyDownloadLinks(payload) {
+  if (payload.excelBase64) {
+    lastExcelBlobUrl = setDownloadLinkFromBase64(downloadLink, payload.excelBase64, EXCEL_MIME_TYPE, payload.excelFileName, lastExcelBlobUrl);
+  } else {
+    const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
+    if (downloadUrl) {
+      downloadLink.href = downloadUrl;
+      downloadLink.classList.remove("hidden");
+    }
+  }
+  if (payload.pdfBase64) {
+    lastPdfBlobUrl = setDownloadLinkFromBase64(pdfDownloadLink, payload.pdfBase64, PDF_MIME_TYPE, payload.pdfFileName, lastPdfBlobUrl);
+  } else {
+    const pdfUrl = payload.pdfDownloadUrl || (payload.pdfPath ? `/api/download?file=${encodeURIComponent(payload.pdfPath)}` : "");
+    pdfDownloadLink.classList.toggle("hidden", !pdfUrl);
+    if (pdfUrl) {
+      pdfDownloadLink.href = pdfUrl;
+    }
+  }
+}
+
 function renderResult(result, payload) {
   document.getElementById("totalScore").textContent = result.total_score ?? "--";
   document.getElementById("grade").textContent = result.grade || "평가 보류";
@@ -1184,16 +1033,7 @@ function renderResult(result, payload) {
 
   document.getElementById("finalSummary").textContent = result.final_summary || "최종 요약이 없습니다.";
 
-  const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
-  if (downloadUrl) {
-    downloadLink.href = downloadUrl;
-    downloadLink.classList.remove("hidden");
-  }
-  const pdfUrl = payload.pdfDownloadUrl || (payload.pdfPath ? `/api/download?file=${encodeURIComponent(payload.pdfPath)}` : "");
-  pdfDownloadLink.classList.toggle("hidden", !pdfUrl);
-  if (pdfUrl) {
-    pdfDownloadLink.href = pdfUrl;
-  }
+  applyDownloadLinks(payload);
   jsonPath.textContent = payload.jsonPath ? `JSON: ${payload.jsonPath}` : "";
 }
 
@@ -1220,7 +1060,7 @@ async function analyze() {
   pdfDownloadLink.classList.add("hidden");
   jsonPath.textContent = "";
   try {
-    setProgress("이미지를 준비하고 LM Studio로 분석 요청을 보내는 중입니다.");
+    setProgress("이미지를 준비하고 NVIDIA NIM으로 분석 요청을 보내는 중입니다.");
     const payload = await postJson("/api/analyze", { images: state.images, options: optionsPayload() });
     renderResult(payload.result, payload);
     await saveSingleHistory(payload);
@@ -1245,18 +1085,10 @@ async function batchAnalyze() {
     setProgress("이미지별 일괄 분석을 시작합니다. 사진 수에 따라 시간이 걸릴 수 있습니다.");
     const payload = await postJson("/api/batch-analyze", { images: state.images, options: optionsPayload() });
     if (payload.results?.length) {
-      renderResult(payload.results[0].result, {
-        downloadUrl: payload.downloadUrl,
-        pdfDownloadUrl: payload.pdfDownloadUrl,
-        jsonPath: payload.results[0].jsonPath,
-      });
+      renderResult(payload.results[0].result, { jsonPath: payload.results[0].jsonPath });
     }
     await saveBatchHistory(payload);
-    const downloadUrl = payload.downloadUrl || (payload.excelPath ? `/api/download?file=${encodeURIComponent(payload.excelPath)}` : "");
-    if (downloadUrl) {
-      downloadLink.href = downloadUrl;
-      downloadLink.classList.remove("hidden");
-    }
+    applyDownloadLinks(payload);
     setProgress(`Excel·PDF 생성 완료 · ${payload.count}개 이미지 · ${payload.elapsedSeconds}s`);
   } catch (error) {
     setProgress(`Excel·PDF 생성 실패: ${error.message}`);

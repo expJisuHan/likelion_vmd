@@ -7,7 +7,7 @@ from xml.sax.saxutils import escape
 
 from ..config import settings
 from ..services.records import excel_column_widths_for_zone, excel_headers_for_zone, record_zone, result_to_row
-from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, timestamp
+from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, relative_output_path, timestamp
 
 try:
     from openpyxl import Workbook
@@ -36,7 +36,7 @@ def xlsx_inline_cell(row_idx: int, col_idx: int, value: Any, style: int | None =
     return f'<c r="{ref}" t="inlineStr"{style_attr}><is><t xml:space="preserve">{text}</t></is></c>'
 
 
-def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> str:
+def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> tuple[str, bytes]:
     """openpyxl이 없는 환경을 위한 내장 XLSX 생성기(zip + 수기 OOXML)."""
     path = settings.excel_dir / f"{prefix}_{timestamp()}.xlsx"
     zone = record_zone(records[0]) if records else "VP"
@@ -173,10 +173,10 @@ def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> str:
             xlsx.writestr("xl/drawings/drawing1.xml", drawing_xml)
             for part in image_parts:
                 xlsx.writestr(f'xl/media/{part["name"]}', part["data"])
-    return str(path.relative_to(settings.project_root))
+    return relative_output_path(path), path.read_bytes()
 
 
-def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> str:
+def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tuple[str, bytes]:
     settings.ensure_dirs()
     if Workbook is None:
         return save_excel_pure_python(records, prefix)
@@ -219,4 +219,4 @@ def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> st
     ws.freeze_panes = "A2"
     path = settings.excel_dir / f"{prefix}_{timestamp()}.xlsx"
     wb.save(path)
-    return str(path.relative_to(settings.project_root))
+    return relative_output_path(path), path.read_bytes()
