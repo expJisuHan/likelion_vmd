@@ -162,7 +162,7 @@ def _run_space_flow(resized_data_url: str) -> dict[str, Any]:
             },
         ],
         "temperature": 0.2,
-        "max_tokens": 900,
+        "max_tokens": 1500,
         "frequency_penalty": 0.6,
         "presence_penalty": 0.3,
         "response_format": {
@@ -170,7 +170,7 @@ def _run_space_flow(resized_data_url: str) -> dict[str, Any]:
             "json_schema": {"name": "accessibility_result", "strict": True, "schema": accessibility_json_schema()},
         },
     }
-    raw = _nim_request_resilient(payload, timeout=60)
+    raw = _nim_request_resilient(payload, timeout=90)
     content = raw["choices"][0]["message"]["content"]
     parsed = parse_accessibility_content(content)
     # items: 프론트가 항목별로 시각적으로 구분해서 보여주기 위한 구조화된 목록.
