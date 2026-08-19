@@ -590,6 +590,54 @@
   outline: none;
 }
 
+/* 결과를 음성으로 읽어주는 컨트롤(재생/일시정지/정지, 속도 선택) */
+.cp-narration {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--cp-line);
+}
+
+.cp-narration-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.cp-narration-rate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.cp-narration-rate button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 6px 14px;
+  border: 1px solid var(--cp-line-strong);
+  background: var(--cp-surface);
+  border-radius: var(--cp-radius-pill);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-page .cp-narration-rate button[aria-pressed="true"] {
+  background: var(--cp-accent);
+  color: var(--cp-accent-ink);
+  border-color: var(--cp-accent);
+}
+
+.cp-narration-status {
+  font-weight: 700;
+  color: var(--cp-muted);
+  margin: 0;
+}
+
 .cp-summary-list {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));

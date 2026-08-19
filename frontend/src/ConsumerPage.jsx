@@ -1,8 +1,12 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Camera,
   CircleHalf,
+  Pause,
+  Play,
+  SpeakerHigh,
   SpinnerGap,
+  Stop,
   TextAa,
   Trash,
   WarningCircle,
@@ -16,6 +20,7 @@ import {
   readFileAsDataUrl,
   postJson,
 } from './mediaUtils';
+import { useSpeechNarration, TTS_RATE_LABELS } from './useSpeechNarration';
 
 const TEXT_SIZE_KEY = 'vmd-consumer-text-size';
 const CONTRAST_KEY = 'vmd-consumer-high-contrast';
@@ -40,6 +45,8 @@ function PhotoInsightModal({
   latestAnswer,
   isAsking,
   onAsk,
+  narration,
+  narrationText,
 }) {
   const isClothing = type === 'clothing';
   const dialogRef = useRef(null);
@@ -50,8 +57,16 @@ function PhotoInsightModal({
       window.requestAnimationFrame(() => headingRef.current?.focus());
     } else {
       triggerRef?.current?.focus();
+      narration?.stop();
     }
-  }, [isOpen, triggerRef]);
+  }, [isOpen, triggerRef, narration]);
+
+  // 결과가 바뀌었는데(같은 모달을 다시 열거나 새 사진을 분석) 예전 텍스트를
+  // 계속 읽고 있으면 안 되므로, 내용이 바뀌면 재생 중이던 음성을 멈춥니다.
+  useEffect(() => {
+    narration?.stop();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [narrationText]);
 
   useEffect(() => {
     if (!isOpen) return undefined;
@@ -103,9 +118,77 @@ function PhotoInsightModal({
         </div>
 
         <div className="cp-modal-body">
+          {narration && (
+            <div className="cp-narration" role="group" aria-label="음성으로 결과 듣기">
+              {narration.isSupported ? (
+                <>
+                  <div className="cp-narration-controls">
+                    <button
+                      type="button"
+                      className="cp-btn cp-btn-primary"
+                      onClick={() => {
+                        if (narration.status === 'playing') {
+                          narration.pause();
+                        } else if (narration.status === 'paused') {
+                          narration.resume();
+                        } else {
+                          narration.speak(narrationText);
+                        }
+                      }}
+                      disabled={!narrationText}
+                    >
+                      {narration.status === 'playing' ? (
+                        <><Pause size={18} aria-hidden="true" />일시정지</>
+                      ) : narration.status === 'paused' ? (
+                        <><Play size={18} aria-hidden="true" />이어 듣기</>
+                      ) : (
+                        <><SpeakerHigh size={18} aria-hidden="true" />결과 읽어주기</>
+                      )}
+                    </button>
+                    {(narration.status === 'playing' || narration.status === 'paused') && (
+                      <button type="button" className="cp-btn cp-btn-outline" onClick={narration.stop}>
+                        <Stop size={18} aria-hidden="true" />정지
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="cp-narration-rate" role="group" aria-label="읽는 속도 선택">
+                    <span className="cp-toolbar-label">읽는 속도</span>
+                    {Object.entries(TTS_RATE_LABELS).map(([key, label]) => (
+                      <button
+                        key={key}
+                        type="button"
+                        aria-pressed={narration.rateKey === key}
+                        onClick={() => narration.setRateKey(key)}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <p className="cp-narration-status" role="status" aria-live="polite">
+                    {narration.status === 'playing' && '음성으로 읽는 중입니다.'}
+                    {narration.status === 'paused' && '일시정지했습니다.'}
+                    {narration.status === 'done' && '읽기를 마쳤습니다.'}
+                    {narration.status === 'error' && '음성 읽기 중 오류가 발생했습니다.'}
+                  </p>
+                </>
+              ) : (
+                <p className="cp-help-text">이 브라우저는 결과를 음성으로 읽어주는 기능을 지원하지 않습니다.</p>
+              )}
+            </div>
+          )}
+
           {isClothing ? (
             <>
-              <p className="cp-modal-text">{content?.narration}</p>
+              <ul className="cp-space-list">
+                {(content?.items || []).map((item, index) => (
+                  <li className="cp-space-item" key={index}>
+                    <strong className="cp-space-label">{item.label}</strong>
+                    <p className="cp-space-desc">{item.description}</p>
+                  </li>
+                ))}
+              </ul>
 
               <div className="cp-ask-box">
                 <label htmlFor="cpAskInput" className="cp-ask-label">이 제품에 대해 더 물어보세요</label>
@@ -195,6 +278,14 @@ export default function ConsumerPage() {
   const streamRef = useRef(null);
   const captureButtonRef = useRef(null);
   const insightTriggerRef = useRef(null);
+
+  const narration = useSpeechNarration();
+  // clothing 응답은 narration 필드, space 응답은 text 필드에 TTS용 평문이 들어있습니다
+  // (services/consumer_prompt.py·accessibility_prompt.py 참고).
+  const narrationText = useMemo(
+    () => photoModalContent?.narration || photoModalContent?.text || '',
+    [photoModalContent]
+  );
 
   useEffect(() => {
     window.localStorage.setItem(TEXT_SIZE_KEY, textSize);
@@ -291,13 +382,12 @@ export default function ConsumerPage() {
     setAskHistory([]);
     setAskQuestion('');
     setLatestAnswer('');
+    narration.stop();
     try {
       const lastImage = previewImages[previewImages.length - 1];
       const payload = await postJson('/api/consumer/photo-insight', { image: lastImage });
       setPhotoModalType(payload.type);
-      setPhotoModalContent(
-        payload.type === 'clothing' ? { narration: payload.narration } : { items: payload.items, text: payload.text }
-      );
+      setPhotoModalContent({ items: payload.items, narration: payload.narration, text: payload.text });
       setIsPhotoModalOpen(true);
     } catch (error) {
       setInsightError(`사진을 살펴보는 데 실패했어요: ${error.message}`);
@@ -510,6 +600,8 @@ export default function ConsumerPage() {
         latestAnswer={latestAnswer}
         isAsking={isAsking}
         onAsk={runAsk}
+        narration={narration}
+        narrationText={narrationText}
       />
     </div>
   );
