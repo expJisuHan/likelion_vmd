@@ -30,3 +30,11 @@ class AnalyzeRequest(BaseModel):
 
 class BatchAnalyzeRequest(AnalyzeRequest):
     pass
+
+
+class ConsumerPhotoRequest(BaseModel):
+    image: ImagePayload
+
+
+class ConsumerAskRequest(BaseModel):
+    question: str = Field(..., min_length=1)
