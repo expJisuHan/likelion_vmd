@@ -1,9 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Camera,
-  CheckCircle,
   CircleHalf,
-  DownloadSimple,
   SpinnerGap,
   TextAa,
   Trash,
@@ -14,18 +12,154 @@ import './consumer-page.css';
 import {
   UPLOAD_MAX_DIMENSION,
   UPLOAD_TARGET_BYTES,
-  EXCEL_MIME_TYPE,
-  PDF_MIME_TYPE,
   resizeImageDataUrl,
   readFileAsDataUrl,
-  downloadBase64File,
   postJson,
 } from './mediaUtils';
 
 const TEXT_SIZE_KEY = 'vmd-consumer-text-size';
 const CONTRAST_KEY = 'vmd-consumer-high-contrast';
 
-const DEFAULT_CRITERIA_LABELS = ['구성/레이아웃', '연출/분위기', '브랜드 적합성', '사진 품질'];
+const FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+// 의류 사진이면 감각적 서술 + 제품 질문(질문하기), 공간 사진이면 접근성 안내를
+// 보여주는 모달. 유니버설 디자인 원칙(인지 가능한 정보, 오류 허용, 적은 신체적
+// 노력, 공평한 사용)에 맞춰: 열리면 포커스가 제목으로 이동하고, 닫히면 이 모달을
+// 연 버튼으로 포커스가 돌아오며, Esc로 닫을 수 있고, 열려 있는 동안 Tab이 모달
+// 밖으로 새어나가지 않도록 포커스를 가둡니다. 닫기 버튼도 아이콘 대신 글자 라벨을
+// 함께 달아 이 페이지의 다른 버튼들과 같은 톤을 유지합니다.
+function PhotoInsightModal({
+  type,
+  content,
+  isOpen,
+  onClose,
+  triggerRef,
+  askQuestion,
+  onAskQuestionChange,
+  askHistory,
+  latestAnswer,
+  isAsking,
+  onAsk,
+}) {
+  const isClothing = type === 'clothing';
+  const dialogRef = useRef(null);
+  const headingRef = useRef(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      window.requestAnimationFrame(() => headingRef.current?.focus());
+    } else {
+      triggerRef?.current?.focus();
+    }
+  }, [isOpen, triggerRef]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const node = dialogRef.current;
+      if (!node) return;
+      const focusable = Array.from(node.querySelectorAll(FOCUSABLE_SELECTOR));
+      if (!focusable.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  return (
+    <>
+      <div className={`cp-modal-overlay${isOpen ? ' open' : ''}`} onClick={onClose} />
+      <aside
+        ref={dialogRef}
+        className={`cp-modal${isOpen ? ' open' : ''}`}
+        aria-hidden={!isOpen}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cpModalHeading"
+      >
+        <div className="cp-modal-head">
+          <h2 id="cpModalHeading" className="cp-modal-title" tabIndex={-1} ref={headingRef}>
+            {isClothing ? '의류 안내' : '공간 안내'}
+          </h2>
+          <button type="button" className="cp-modal-close" onClick={onClose}>
+            <X size={18} aria-hidden="true" />닫기
+          </button>
+        </div>
+
+        <div className="cp-modal-body">
+          {isClothing ? (
+            <>
+              <p className="cp-modal-text">{content?.narration}</p>
+
+              <div className="cp-ask-box">
+                <label htmlFor="cpAskInput" className="cp-ask-label">이 제품에 대해 더 물어보세요</label>
+                <div className="cp-ask-row">
+                  <input
+                    id="cpAskInput"
+                    type="text"
+                    value={askQuestion}
+                    onChange={(event) => onAskQuestionChange(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        onAsk();
+                      }
+                    }}
+                    placeholder="예: 코냑색 가방도 있어요?"
+                  />
+                  <button type="button" className="cp-btn cp-btn-primary" onClick={onAsk} disabled={isAsking}>
+                    {isAsking ? '...' : '묻기'}
+                  </button>
+                </div>
+
+                {/* 답변이 새로 올 때만 한 번 안내하는 화면 밖 알림 — 목록 전체를
+                    aria-live로 걸면 질문할 때마다 스크린리더가 지난 대화까지
+                    전부 다시 읽어서 번거롭습니다. */}
+                <p className="cp-sr-only" aria-live="polite">{latestAnswer}</p>
+
+                {askHistory.length > 0 && (
+                  <ul className="cp-ask-history">
+                    {askHistory.map((item, index) => (
+                      <li key={index}>
+                        <p className="cp-ask-q">Q. {item.question}</p>
+                        <p className="cp-ask-a">{item.answer}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </>
+          ) : (
+            <ul className="cp-space-list">
+              {(content?.items || []).map((item, index) => (
+                <li className="cp-space-item" key={index}>
+                  <strong className="cp-space-label">{item.label}</strong>
+                  <p className="cp-space-desc">{item.description}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+    </>
+  );
+}
 
 export default function ConsumerPage() {
   const [textSize, setTextSize] = useState(() => {
@@ -39,18 +173,24 @@ export default function ConsumerPage() {
 
   const [previewImages, setPreviewImages] = useState([]);
 
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [result, setResult] = useState(null);
-  const [batchInfo, setBatchInfo] = useState(null);
-  const [downloads, setDownloads] = useState(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+
+  const [isInsightLoading, setIsInsightLoading] = useState(false);
+  const [insightError, setInsightError] = useState('');
+  const [photoModalType, setPhotoModalType] = useState(null); // 'clothing' | 'space'
+  const [photoModalContent, setPhotoModalContent] = useState(null);
+  const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [askQuestion, setAskQuestion] = useState('');
+  const [askHistory, setAskHistory] = useState([]);
+  const [latestAnswer, setLatestAnswer] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
 
   const videoRef = useRef(null);
   const streamRef = useRef(null);
-  const resultHeadingRef = useRef(null);
   const captureButtonRef = useRef(null);
+  const insightTriggerRef = useRef(null);
 
   useEffect(() => {
     window.localStorage.setItem(TEXT_SIZE_KEY, textSize);
@@ -63,6 +203,13 @@ export default function ConsumerPage() {
   useEffect(() => () => {
     streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
+
+  useEffect(() => {
+    document.body.style.overflow = isPhotoModalOpen ? 'hidden' : '';
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [isPhotoModalOpen]);
 
   const handleImageInputChange = async (event) => {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
@@ -128,90 +275,54 @@ export default function ConsumerPage() {
     setStatusMessage('사진을 촬영해서 목록에 추가했습니다.');
   };
 
-  const buildOptions = () => ({
-    zoneMode: 'AUTO',
-    storeType: 'UNKNOWN',
-    tone: 'SOFT_CRITICAL',
-    criteria: DEFAULT_CRITERIA_LABELS,
-    focusKeywords: [],
-    extraCriteria: '',
-    temperature: 0.2,
-    maxTokens: 6000,
-  });
-
-  const focusResultHeading = () => {
-    window.requestAnimationFrame(() => {
-      resultHeadingRef.current?.focus();
-      resultHeadingRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
-  };
-
-  const runAnalyze = async () => {
+  const runPhotoInsight = async () => {
     if (!previewImages.length) {
-      setErrorMessage('분석할 사진을 먼저 추가해 주세요.');
+      setInsightError('먼저 사진을 추가해 주세요.');
       return;
     }
-    setErrorMessage('');
-    setIsAnalyzing(true);
-    setStatusMessage('분석 중입니다. 잠시만 기다려 주세요...');
+    setInsightError('');
+    setIsInsightLoading(true);
+    setAskHistory([]);
+    setAskQuestion('');
+    setLatestAnswer('');
     try {
-      const payload = await postJson('/api/analyze', { images: previewImages, options: buildOptions() });
-      setResult(payload.result || null);
-      setBatchInfo(null);
-      setDownloads({
-        excelBase64: payload.excelBase64,
-        excelFileName: payload.excelFileName,
-        pdfBase64: payload.pdfBase64,
-        pdfFileName: payload.pdfFileName,
-      });
-      setStatusMessage(`분석이 끝났습니다. (${payload.elapsedSeconds}초 걸림)`);
-      focusResultHeading();
+      const lastImage = previewImages[previewImages.length - 1];
+      const payload = await postJson('/api/consumer/photo-insight', { image: lastImage });
+      setPhotoModalType(payload.type);
+      setPhotoModalContent(
+        payload.type === 'clothing' ? { narration: payload.narration } : { items: payload.items, text: payload.text }
+      );
+      setIsPhotoModalOpen(true);
     } catch (error) {
-      setResult(null);
-      setStatusMessage('');
-      setErrorMessage(`분석에 실패했습니다: ${error.message}`);
+      setInsightError(`사진을 살펴보는 데 실패했어요: ${error.message}`);
     } finally {
-      setIsAnalyzing(false);
+      setIsInsightLoading(false);
     }
   };
 
-  const runBatchAnalyze = async () => {
-    if (!previewImages.length) {
-      setErrorMessage('엑셀로 정리할 사진을 먼저 추가해 주세요.');
-      return;
-    }
-    setErrorMessage('');
-    setIsAnalyzing(true);
-    setStatusMessage('이미지를 하나씩 분석해서 엑셀로 정리하는 중입니다...');
-    try {
-      const payload = await postJson('/api/batch-analyze', { images: previewImages, options: buildOptions() });
-      const firstResult = payload.results?.[0]?.result || null;
-      setResult(firstResult);
-      setBatchInfo({ count: payload.count, elapsedSeconds: payload.elapsedSeconds });
-      setDownloads({
-        excelBase64: payload.excelBase64,
-        excelFileName: payload.excelFileName,
-        pdfBase64: payload.pdfBase64,
-        pdfFileName: payload.pdfFileName,
-      });
-      setStatusMessage(`이미지 ${payload.count}개 분석과 엑셀·PDF 만들기를 마쳤습니다. (${payload.elapsedSeconds}초 걸림)`);
-      focusResultHeading();
-    } catch (error) {
-      setResult(null);
-      setStatusMessage('');
-      setErrorMessage(`엑셀 만들기에 실패했습니다: ${error.message}`);
-    } finally {
-      setIsAnalyzing(false);
-    }
+  // 이미 받아온 결과가 있으면(같은 세션 안에서) 새로 요청하지 않고 그대로 다시 엽니다 —
+  // 매번 새 API 호출을 만들지 않는 게 비용·시간 면에서 낫습니다.
+  const reopenPhotoModal = () => {
+    setIsPhotoModalOpen(true);
   };
 
-  const photo = result?.photo_quality || {};
-  const mannequin = result?.mannequin || {};
-  const criteriaEvaluations = Array.isArray(result?.criteria_evaluations)
-    ? result.criteria_evaluations.filter((item) => item && item.criterion)
-    : [];
-  const obstacles = Array.isArray(result?.obstacles) ? result.obstacles : [];
-  const doneMessage = !isAnalyzing && !errorMessage && statusMessage;
+  const runAsk = async () => {
+    const question = askQuestion.trim();
+    if (!question || isAsking) return;
+    setIsAsking(true);
+    try {
+      const payload = await postJson('/api/consumer/ask', { question });
+      setAskHistory((prev) => [...prev, { question, answer: payload.answer }]);
+      setLatestAnswer(payload.answer);
+      setAskQuestion('');
+    } catch (error) {
+      const answer = `답을 가져오지 못했어요: ${error.message}`;
+      setAskHistory((prev) => [...prev, { question, answer }]);
+      setLatestAnswer(answer);
+    } finally {
+      setIsAsking(false);
+    }
+  };
 
   return (
     <div className={`cp-page cp-text-${textSize}${highContrast ? ' cp-contrast' : ''}`}>
@@ -319,168 +430,56 @@ export default function ConsumerPage() {
                 ))}
               </ul>
             )}
-          </li>
 
-          <li className="cp-step" aria-labelledby="cp-step2-heading">
-            <h2 id="cp-step2-heading"><span className="cp-step-num" aria-hidden="true">2</span>분석 시작하기</h2>
-            <p className="cp-step-desc">사진 한 세트를 바로 분석하거나, 여러 사진을 한 번에 엑셀 파일로 정리할 수 있어요.</p>
-
-            <div className="cp-actions">
-              <button
-                type="button"
-                className="cp-btn cp-btn-primary"
-                onClick={runAnalyze}
-                disabled={isAnalyzing}
-              >
-                {isAnalyzing && <SpinnerGap size={18} className="cp-spin" aria-hidden="true" />}
-                {isAnalyzing ? '분석 중입니다...' : '사진 분석하기'}
-              </button>
-              <button
-                type="button"
-                className="cp-btn cp-btn-outline"
-                onClick={runBatchAnalyze}
-                disabled={isAnalyzing}
-              >
-                {isAnalyzing && <SpinnerGap size={18} className="cp-spin" aria-hidden="true" />}
-                {isAnalyzing ? '처리 중입니다...' : '엑셀·PDF로 저장하기'}
-              </button>
-            </div>
-
-            {statusMessage && (
-              <p className="cp-status-text" role="status">
-                {doneMessage && <CheckCircle size={18} weight="fill" aria-hidden="true" />}
-                {statusMessage}
-              </p>
-            )}
-            {errorMessage && (
-              <p className="cp-error-text" role="alert">
-                <WarningCircle size={18} weight="fill" aria-hidden="true" />{errorMessage}
-              </p>
+            {previewImages.length > 0 && (
+              <div className="cp-insight-trigger">
+                <div className="cp-insight-actions">
+                  <button
+                    type="button"
+                    className="cp-btn cp-btn-primary"
+                    onClick={runPhotoInsight}
+                    disabled={isInsightLoading}
+                    ref={insightTriggerRef}
+                  >
+                    {isInsightLoading && <SpinnerGap size={18} className="cp-spin" aria-hidden="true" />}
+                    {isInsightLoading ? '살펴보는 중입니다...' : '방금 찍은 사진 살펴보기'}
+                  </button>
+                  {photoModalContent && !isPhotoModalOpen && (
+                    <button type="button" className="cp-btn cp-btn-outline" onClick={reopenPhotoModal}>
+                      마지막 결과 다시 보기
+                    </button>
+                  )}
+                </div>
+                <p className="cp-step-desc">
+                  옷이나 가방을 찍으셨으면 그 제품에 대해, 매장 공간을 찍으셨으면 이동 안전 정보를 안내해드려요.
+                </p>
+                {statusMessage && (
+                  <p className="cp-status-text" role="status">{statusMessage}</p>
+                )}
+                {(insightError || errorMessage) && (
+                  <p className="cp-error-text" role="alert">
+                    <WarningCircle size={18} weight="fill" aria-hidden="true" />{insightError || errorMessage}
+                  </p>
+                )}
+              </div>
             )}
           </li>
         </ol>
-
-        <section className="cp-result" aria-labelledby="cp-result-heading">
-          <h2 id="cp-result-heading" tabIndex={-1} ref={resultHeadingRef}>분석 결과</h2>
-
-          {!result ? (
-            <p className="cp-help-text">아직 분석 결과가 없습니다. 위에서 사진을 올리고 분석을 시작해 주세요.</p>
-          ) : (
-            <>
-              {batchInfo && (
-                <p className="cp-help-text">사진 {batchInfo.count}장 중 첫 번째 사진의 결과를 아래에 보여드려요. 전체 결과는 엑셀 파일에서 확인하세요.</p>
-              )}
-
-              <dl className="cp-summary-list">
-                <div className="cp-summary-item">
-                  <dt>총점</dt>
-                  <dd>{result.total_score ?? '정보 없음'}점</dd>
-                </div>
-                <div className="cp-summary-item">
-                  <dt>구역</dt>
-                  <dd>{result.ai_detected_zone || '알 수 없음'}</dd>
-                </div>
-                <div className="cp-summary-item">
-                  <dt>사진 품질</dt>
-                  <dd>
-                    {photo.score != null ? `${photo.score}점` : '정보 없음'}
-                    {photo.needs_retake && (
-                      <span className="cp-retake-flag"><WarningCircle size={16} weight="fill" aria-hidden="true" />다시 찍는 것을 권해요</span>
-                    )}
-                  </dd>
-                </div>
-                <div className="cp-summary-item">
-                  <dt>마네킹</dt>
-                  <dd>{mannequin.exists ? '있음' : '없음'}</dd>
-                </div>
-              </dl>
-
-              {criteriaEvaluations.length > 0 && (
-                <section className="cp-result-section" aria-labelledby="cp-criteria-heading">
-                  <h3 id="cp-criteria-heading">항목별 평가</h3>
-                  <ul className="cp-criteria-results">
-                    {criteriaEvaluations.map((item) => (
-                      <li key={item.criterion}>
-                        <strong>{item.criterion}</strong>
-                        <span>{item.score != null ? `${item.score}점` : '점수 없음'}</span>
-                        <p>{item.suggestion || item.evidence || '설명이 없습니다.'}</p>
-                      </li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-
-              <section className="cp-result-section" aria-labelledby="cp-positive-heading">
-                <h3 id="cp-positive-heading">잘된 점</h3>
-                {result.positive_points?.length ? (
-                  <ul>{result.positive_points.map((point, i) => <li key={i}>{point}</li>)}</ul>
-                ) : (
-                  <p className="cp-help-text">알려드릴 잘된 점이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="cp-result-section" aria-labelledby="cp-critical-heading">
-                <h3 id="cp-critical-heading">고치면 좋은 점</h3>
-                {result.critical_issues?.length ? (
-                  <ul>{result.critical_issues.map((point, i) => <li key={i}>{point}</li>)}</ul>
-                ) : (
-                  <p className="cp-help-text">특별히 고칠 점이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="cp-result-section" aria-labelledby="cp-improve-heading">
-                <h3 id="cp-improve-heading">개선 제안</h3>
-                {result.improvement_suggestions?.length ? (
-                  <ul>{result.improvement_suggestions.map((point, i) => <li key={i}>{point}</li>)}</ul>
-                ) : (
-                  <p className="cp-help-text">추가 제안이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="cp-result-section" aria-labelledby="cp-obstacle-heading">
-                <h3 id="cp-obstacle-heading">방해물</h3>
-                {obstacles.length ? (
-                  <ul>
-                    {obstacles.map((item, i) => (
-                      <li key={i}>{item.object || '알 수 없는 물건'} · {item.location || '위치 정보 없음'}</li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="cp-help-text">감지된 방해물이 없습니다.</p>
-                )}
-              </section>
-
-              <section className="cp-result-section" aria-labelledby="cp-summary-heading">
-                <h3 id="cp-summary-heading">최종 요약</h3>
-                <p>{result.final_summary || '요약이 없습니다.'}</p>
-              </section>
-
-              {(downloads?.excelBase64 || downloads?.pdfBase64) && (
-                <div className="cp-downloads">
-                  {downloads.excelBase64 && (
-                    <button
-                      type="button"
-                      className="cp-btn cp-btn-outline"
-                      onClick={() => downloadBase64File(downloads.excelBase64, EXCEL_MIME_TYPE, downloads.excelFileName)}
-                    >
-                      <DownloadSimple size={18} aria-hidden="true" />엑셀 파일 내려받기
-                    </button>
-                  )}
-                  {downloads.pdfBase64 && (
-                    <button
-                      type="button"
-                      className="cp-btn cp-btn-outline"
-                      onClick={() => downloadBase64File(downloads.pdfBase64, PDF_MIME_TYPE, downloads.pdfFileName)}
-                    >
-                      <DownloadSimple size={18} aria-hidden="true" />PDF 파일 내려받기
-                    </button>
-                  )}
-                </div>
-              )}
-            </>
-          )}
-        </section>
       </main>
+
+      <PhotoInsightModal
+        type={photoModalType}
+        content={photoModalContent}
+        isOpen={isPhotoModalOpen}
+        onClose={() => setIsPhotoModalOpen(false)}
+        triggerRef={insightTriggerRef}
+        askQuestion={askQuestion}
+        onAskQuestionChange={setAskQuestion}
+        askHistory={askHistory}
+        latestAnswer={latestAnswer}
+        isAsking={isAsking}
+        onAsk={runAsk}
+      />
     </div>
   );
 }

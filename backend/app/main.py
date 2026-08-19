@@ -19,7 +19,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from .api import analyze, download, health, static
+from .api import analyze, consumer, download, health, static
 from .config import settings
 from .utils import friendly_error_message
 
@@ -58,5 +58,6 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 # api/* 라우트를 먼저 등록하고, 정적 파일 서빙(static)은 반드시 마지막에 등록합니다.
 app.include_router(health.router)
 app.include_router(analyze.router)
+app.include_router(consumer.router)
 app.include_router(download.router)
 app.include_router(static.router)

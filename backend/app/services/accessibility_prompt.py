@@ -135,7 +135,10 @@ def parse_accessibility_content(content: str) -> dict[str, Any]:
         for line in chunk.splitlines():
             desc_match = _DESCRIPTION_RE.search(line)
             if desc_match:
-                description = desc_match.group(1).strip().strip("*").strip()
+                # "description: = 문장"처럼 라벨 뒤에 등호를 덧붙이는 경우가 있어(실측 확인)
+                # 라벨 문자(*, =, :)를 양쪽에서 반복해서 벗겨냅니다.
+                description = desc_match.group(1).strip()
+                description = description.strip("*=: ").strip()
                 break
         result[key] = {"observed": observed, "description": description}
     return result
@@ -175,3 +178,23 @@ def render_consumer_text(parsed: dict[str, Any]) -> str:
         else:
             lines.append(f"- {label}: 이 사진만으로는 확인하기 어려웠어요.")
     return "\n".join(lines)
+
+
+def consumer_items(parsed: dict[str, Any]) -> list[dict[str, str]]:
+    """render_consumer_text()와 같은 내용을, 프론트가 항목별로 시각적으로 구분해
+    렌더링할 수 있도록 {label, description} 목록으로 반환합니다. 문자열 하나에
+    "- 라벨: 설명"을 줄바꿈으로만 나열하면 실제로는 목록이 아니라 그냥 텍스트
+    덩어리로 보여서(가독성 저하), 항목 구분이 필요한 화면(모달 등)에서는 이 함수를
+    쓰는 걸 권장합니다. render_consumer_text()는 TTS처럼 순수 텍스트 한 덩어리가
+    필요한 용도에 계속 씁니다.
+    """
+    items = []
+    for key in _SECTION_ORDER:
+        item = parsed.get(key) or {}
+        label = _CONSUMER_LABELS.get(key, key)
+        description = (item.get("description") or "").strip()
+        items.append({
+            "label": label,
+            "description": description or "이 사진만으로는 확인하기 어려웠어요.",
+        })
+    return items
