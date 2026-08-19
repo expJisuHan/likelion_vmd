@@ -172,9 +172,17 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
             f"{zone} 존 전용 평가 항목: " + ", ".join(zone_criteria),
             "참고 키워드: " + (", ".join(focus_keywords) if focus_keywords else "없음"),
             "추가 평가 요청: " + (extra if extra else "없음"),
+            "다른 내용보다 먼저, 아래 6줄을 이 형식 그대로(설명 추가 없이, 줄바꿈 유지) "
+            "응답의 맨 첫 줄부터 작성하세요. 이후에만 나머지 상세 평가를 이어서 작성하세요:",
+            "TOTAL_SCORE: <0-100 정수>",
+            "AI_DETECTED_ZONE: <VP 또는 PP 또는 IP 또는 UNKNOWN>",
+            "ZONE_CONFIDENCE: <0.00~1.00>",
+            "PHOTO_QUALITY_SCORE: <0-100 정수>",
+            "MANNEQUIN_EXISTS: <true 또는 false>",
+            "MANNEQUIN_TYPE: <mannequin_with_head 또는 headless_body_mannequin 또는 hanger_display 또는 none>",
             "결과 분량 기준을 반드시 지키세요.",
             "- criteria_evaluations: 아래 존 전용 평가 항목을 같은 이름과 같은 순서로 모두 작성하세요. "
-            "evidence/issue/suggestion은 각각 정확히 1문장으로 간결하게 작성하세요.",
+            "항목마다 score(0~100 정수), evidence/issue/suggestion(각각 정확히 1문장)을 포함하세요.",
             *[f"  {index}. {criterion}" for index, criterion in enumerate(zone_criteria, start=1)],
             "- positive_points: 서로 다른 강점 2~3개. 각 항목은 관찰 근거와 효과를 담아 1문장으로 작성하세요.",
             "- critical_issues: 서로 다른 핵심 문제 3~4개. 각 항목은 위치/대상, 관찰 근거, VMD 영향을 담아 1문장으로 작성하세요.",
@@ -196,7 +204,8 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
 # 자동 재시도(_find_content_problems/_MAX_CONTENT_RETRIES)가 한 번 더 걸러줍니다.
 def schema_instruction() -> str:
     return (
-        "지정된 JSON 스키마와 정확히 같은 구조의 JSON 객체 하나만 반환하세요. "
+        "TOTAL_SCORE로 시작하는 6줄 헤더는 예외로 그대로 유지하고, 그 다음부터 지정된 JSON 스키마와 "
+        "정확히 같은 구조의 JSON 객체 하나만 반환하세요. "
         "마크다운, 설명 문장, 코드블록은 쓰지 마세요. "
         "예시나 템플릿 문장을 베끼지 말고, 이번에 첨부된 사진에서 실제로 관찰한 대상·위치·상태만 근거로 "
         "모든 문장을 새로 작성하세요. 서로 다른 항목에 같은 문장을 반복하지 마세요. "
