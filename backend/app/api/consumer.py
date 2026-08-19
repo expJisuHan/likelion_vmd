@@ -29,7 +29,7 @@ from ..services.accessibility_prompt import (
 )
 from ..services.analysis import analyze_images
 from ..services.consumer_prompt import consumer_system_prompt, consumer_user_text, has_sufficient_content
-from ..services.nim_client import nim_request
+from ..services.nim_client import is_retriable_nim_error, nim_model_candidates, nim_request
 from ..services.photo_classifier import classifier_json_schema, classifier_system_prompt, classifier_user_text
 from ..services.recommendation_prompt import (
     absent_category_response,
@@ -58,6 +58,27 @@ def _as_text(content: Any) -> str:
     return str(content)
 
 
+_ATTEMPTS_PER_MODEL = 2
+
+
+def _nim_request_resilient(payload: dict[str, Any], timeout: int) -> dict[str, Any]:
+    """analyze.py의 analyze_images는 모델 후보/재시도를 자체적으로 처리하지만, 이 파일의
+    단발성 호출(플로어 분류, 감각적 서술, 접근성 평가)은 그런 보호막이 없어서 NIM의 흔한
+    일시적 실패(타임아웃/429/5xx) 하나에도 곧바로 502로 죽는 문제가 실측으로 확인됐습니다.
+    같은 모델을 여러 번, 그리고 설정된 폴백 모델이 있으면 그것도 재시도합니다."""
+    last_error: Exception | None = None
+    for candidate_model in nim_model_candidates(payload["model"]):
+        candidate_payload = {**payload, "model": candidate_model}
+        for _ in range(_ATTEMPTS_PER_MODEL):
+            try:
+                return nim_request(candidate_payload, timeout=timeout)
+            except RuntimeError as exc:
+                last_error = exc
+                if not is_retriable_nim_error(str(exc)):
+                    raise
+    raise last_error  # type: ignore[misc]
+
+
 def _floor_visible(resized_data_url: str) -> bool:
     """사진에 바닥이 보이는지만 판단합니다("space냐 clothing이냐" 추상 분류보다
     안정적이라는 걸 실측으로 확인했습니다 — photo_classifier.py 모듈 docstring 참고)."""
@@ -80,7 +101,7 @@ def _floor_visible(resized_data_url: str) -> bool:
             "json_schema": {"name": "floor_check", "strict": True, "schema": classifier_json_schema()},
         },
     }
-    raw = nim_request(payload, timeout=30)
+    raw = _nim_request_resilient(payload, timeout=30)
     content = _as_text(raw["choices"][0]["message"]["content"])
     try:
         parsed = json.loads(content)
@@ -123,7 +144,7 @@ def _run_clothing_flow(image: dict[str, Any]) -> dict[str, Any]:
         "temperature": 0.4,
         "max_tokens": 400,
     }
-    raw = nim_request(payload, timeout=60)
+    raw = _nim_request_resilient(payload, timeout=60)
     return {"narration": raw["choices"][0]["message"]["content"]}
 
 
@@ -141,7 +162,7 @@ def _run_space_flow(resized_data_url: str) -> dict[str, Any]:
             },
         ],
         "temperature": 0.2,
-        "max_tokens": 900,
+        "max_tokens": 1500,
         "frequency_penalty": 0.6,
         "presence_penalty": 0.3,
         "response_format": {
@@ -149,7 +170,7 @@ def _run_space_flow(resized_data_url: str) -> dict[str, Any]:
             "json_schema": {"name": "accessibility_result", "strict": True, "schema": accessibility_json_schema()},
         },
     }
-    raw = nim_request(payload, timeout=60)
+    raw = _nim_request_resilient(payload, timeout=90)
     content = raw["choices"][0]["message"]["content"]
     parsed = parse_accessibility_content(content)
     # items: 프론트가 항목별로 시각적으로 구분해서 보여주기 위한 구조화된 목록.
@@ -201,7 +222,7 @@ def api_consumer_ask(payload: ConsumerAskRequest) -> dict[str, Any]:
         "presence_penalty": 0.3,
     }
     try:
-        raw = nim_request(request_payload, timeout=60)
+        raw = _nim_request_resilient(request_payload, timeout=60)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=friendly_error_message(exc)) from exc
     return {"ok": True, "answer": raw["choices"][0]["message"]["content"]}

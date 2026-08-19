@@ -259,6 +259,10 @@ export default function ConsumerPage() {
   });
 
   const [previewImages, setPreviewImages] = useState([]);
+  // 사진을 올리면 "1. 사진 올리기" 섹션이 헤더 바로 아래로 올라오도록 글자
+  // 크기·고대비 설정 패널을 자동으로 접습니다. 필요하면 헤더의 토글 버튼으로
+  // 언제든 다시 펼칠 수 있습니다.
+  const [isA11yPanelOpen, setIsA11yPanelOpen] = useState(true);
 
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -308,6 +312,7 @@ export default function ConsumerPage() {
     const files = Array.from(event.target.files || []).filter((file) => file.type.startsWith('image/'));
     const next = await Promise.all(files.map(readFileAsDataUrl));
     setPreviewImages((prev) => [...prev, ...next]);
+    setIsA11yPanelOpen(false);
     event.target.value = '';
   };
 
@@ -365,6 +370,7 @@ export default function ConsumerPage() {
     );
     const stamp = new Date().toISOString().replace(/[:.]/g, '-');
     setPreviewImages((prev) => [...prev, { name: `camera-${stamp}.jpg`, dataUrl }]);
+    setIsA11yPanelOpen(false);
     setStatusMessage('사진을 촬영해서 목록에 추가했습니다.');
   };
 
@@ -423,23 +429,48 @@ export default function ConsumerPage() {
       <a className="cp-skip-link" href="#cp-main">본문으로 바로가기</a>
 
       <header className="cp-header">
-        <div className="cp-a11y-toolbar">
-          <div className="cp-toolbar-group" role="group" aria-label="글자 크기 선택">
-            <span className="cp-toolbar-label"><TextAa size={20} aria-hidden="true" />글자 크기</span>
-            <button type="button" aria-pressed={textSize === 'normal'} onClick={() => setTextSize('normal')}>보통</button>
-            <button type="button" aria-pressed={textSize === 'large'} onClick={() => setTextSize('large')}>크게</button>
-            <button type="button" aria-pressed={textSize === 'xlarge'} onClick={() => setTextSize('xlarge')}>아주 크게</button>
+        {isA11yPanelOpen ? (
+          <div className="cp-a11y-toolbar" id="cpA11yToolbar">
+            <div className="cp-toolbar-group" role="group" aria-label="글자 크기 선택">
+              <span className="cp-toolbar-label"><TextAa size={20} aria-hidden="true" />글자 크기</span>
+              <button type="button" aria-pressed={textSize === 'normal'} onClick={() => setTextSize('normal')}>보통</button>
+              <button type="button" aria-pressed={textSize === 'large'} onClick={() => setTextSize('large')}>크게</button>
+              <button type="button" aria-pressed={textSize === 'xlarge'} onClick={() => setTextSize('xlarge')}>아주 크게</button>
+            </div>
+            <div className="cp-toolbar-secondary">
+              <button
+                type="button"
+                className="cp-contrast-toggle"
+                aria-pressed={highContrast}
+                onClick={() => setHighContrast((prev) => !prev)}
+              >
+                <CircleHalf size={18} aria-hidden="true" />
+                {highContrast ? '고대비 화면 끄기' : '고대비 화면 켜기'}
+              </button>
+              <button
+                type="button"
+                className="cp-a11y-toggle"
+                aria-expanded="true"
+                aria-controls="cpA11yToolbar"
+                onClick={() => setIsA11yPanelOpen(false)}
+              >
+                <TextAa size={18} aria-hidden="true" />
+                보기 설정 접기
+              </button>
+            </div>
           </div>
+        ) : (
           <button
             type="button"
-            className="cp-contrast-toggle"
-            aria-pressed={highContrast}
-            onClick={() => setHighContrast((prev) => !prev)}
+            className="cp-a11y-toggle"
+            aria-expanded="false"
+            aria-controls="cpA11yToolbar"
+            onClick={() => setIsA11yPanelOpen(true)}
           >
-            <CircleHalf size={18} aria-hidden="true" />
-            {highContrast ? '고대비 화면 끄기' : '고대비 화면 켜기'}
+            <TextAa size={18} aria-hidden="true" />
+            보기 설정 펼치기
           </button>
-        </div>
+        )}
       </header>
 
       <main id="cp-main" className="cp-main">
@@ -508,24 +539,6 @@ export default function ConsumerPage() {
             </p>
 
             {previewImages.length > 0 && (
-              <ul className="cp-thumb-list" aria-label="추가한 사진 목록">
-                {previewImages.map((image, index) => (
-                  <li className="cp-thumb-card" key={`${image.name}-${index}`}>
-                    <img src={image.dataUrl} alt={`업로드한 사진: ${image.name}`} />
-                    <button
-                      type="button"
-                      className="cp-thumb-remove"
-                      aria-label={`${image.name} 삭제`}
-                      onClick={() => removePreviewImage(index)}
-                    >
-                      <Trash size={16} aria-hidden="true" />삭제
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            {previewImages.length > 0 && (
               <div className="cp-insight-trigger">
                 <div className="cp-insight-actions">
                   <button
@@ -556,6 +569,24 @@ export default function ConsumerPage() {
                   </p>
                 )}
               </div>
+            )}
+
+            {previewImages.length > 0 && (
+              <ul className="cp-thumb-list" aria-label="추가한 사진 목록">
+                {previewImages.map((image, index) => (
+                  <li className="cp-thumb-card" key={`${image.name}-${index}`}>
+                    <img src={image.dataUrl} alt={`업로드한 사진: ${image.name}`} />
+                    <button
+                      type="button"
+                      className="cp-thumb-remove"
+                      aria-label={`${image.name} 삭제`}
+                      onClick={() => removePreviewImage(index)}
+                    >
+                      <Trash size={16} aria-hidden="true" />삭제
+                    </button>
+                  </li>
+                ))}
+              </ul>
             )}
           </li>
         </ol>

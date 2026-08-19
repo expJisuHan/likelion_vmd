@@ -176,6 +176,27 @@
   border-bottom: 1px solid var(--cp-line);
 }
 
+/* 사진을 올리면 이 버튼만 남고 아래 .cp-a11y-toolbar 패널은 접혀서, "1. 사진
+   올리기" 섹션이 헤더 바로 아래로 올라옵니다. 이 토글로 언제든 다시 펼칠 수
+   있습니다. */
+.cp-a11y-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 1px solid var(--cp-line-strong);
+  background: var(--cp-surface);
+  border-radius: var(--cp-radius-pill);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.cp-a11y-toggle:hover,
+.cp-a11y-toggle:focus-visible {
+  border-color: var(--cp-highlight);
+}
+
 .cp-a11y-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -191,6 +212,7 @@
 
 .cp-toolbar-group {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
@@ -199,10 +221,31 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex-shrink: 0;
+  white-space: nowrap;
   font-size: 1em;
   font-weight: 700;
   color: var(--cp-muted);
   margin-right: 8px;
+}
+
+/* 고대비 버튼과 접기 버튼을 하나의 묶음으로 만들어, 도구모음이 줄바꿈될 때
+   둘이 항상 같은 줄에 나란히 있도록 합니다(따로따로면 서로 다른 줄로
+   흩어질 수 있음). */
+.cp-toolbar-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+/* Mobile M(~350px) 이상에서만 두 버튼이 한 줄에 억지로 들어가도록 강제합니다.
+   Mobile S처럼 더 좁은 화면까지 강제하면 글자가 카드 밖으로 잘려 나가서,
+   거기서는 원래대로 두 줄로 자연스럽게 떨어지게 둡니다. */
+@media (min-width: 350px) {
+  .cp-toolbar-secondary {
+    flex-wrap: nowrap;
+  }
 }
 
 .cp-a11y-toolbar button {
@@ -216,7 +259,9 @@
   background: var(--cp-surface);
   border-radius: var(--cp-radius-pill);
   font-weight: 700;
+  white-space: nowrap;
   cursor: pointer;
+  margin-right: 2px;
 }
 
 .cp-a11y-toolbar button[aria-pressed="true"] {
@@ -693,8 +738,117 @@
     align-items: stretch;
   }
 
+  /* 라벨 글자 크기를 줄여서 "글자 크기" 라벨과 버튼 3개가 한 줄 안에 다 들어오게
+     합니다. */
+  .cp-toolbar-label {
+    font-size: 0.8em;
+    margin-right: 2px;
+  }
+
+  .cp-toolbar-label svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .cp-toolbar-group {
+    flex-wrap: nowrap;
+    gap: 2px;
+  }
+
+  /* 버튼 사이 여백(gap)이 아니라 버튼 자체의 좌우 padding을 화면 폭에 비례해서
+     키워, 화면이 넓어질수록 버튼이 균등하게 커지면서 우측 빈 공간을 채우게
+     합니다. */
+  .cp-a11y-toolbar button {
+    padding: 6px clamp(4px, calc(11.4vw - 32.6px), 16px);
+    font-size: 0.8em;
+  }
+
   .cp-upload-row {
     flex-direction: column;
+    gap: 14px;
+  }
+
+  /* 사진을 올리면 바로 아래 "분석하기" 버튼이 스크롤 없이 보여야 하므로,
+     헤더·카드 여백을 모바일에서 좀 더 줄입니다. */
+  .cp-header {
+    margin-bottom: 14px;
+    padding-bottom: 12px;
+  }
+
+  .cp-main {
+    gap: 16px;
+  }
+
+  .cp-steps {
+    gap: 16px;
+  }
+
+  .cp-step-photo {
+    padding: 20px 20px 24px;
+  }
+
+  .cp-step-desc {
+    line-height: 1.4;
+  }
+
+  .cp-image-count {
+    line-height: 1.35;
+  }
+
+  .cp-a11y-toolbar {
+    padding: 10px 4px;
+  }
+
+  .cp-toolbar-secondary {
+    gap: 4px;
+  }
+
+  .cp-contrast-toggle,
+  .cp-toolbar-secondary .cp-a11y-toggle {
+    padding-left: 6px;
+    padding-right: 6px;
+    font-size: 0.85em;
+  }
+
+  /* 세로로 쌓이면 320px짜리 두 칸이 640px+가 되어 웬만한 모바일 화면 한 화면에
+     다 안 들어옵니다. 터치 영역은 접근성 최소 기준(44px)보다 훨씬 크게 남기면서
+     여백만 줄여 두 칸이 한 화면에 들어오게 합니다. */
+  .cp-dropzone {
+    min-height: 140px;
+    padding: 16px 20px;
+    gap: 8px;
+  }
+
+  .cp-dropzone-icon svg {
+    width: 32px;
+    height: 32px;
+  }
+
+  .cp-dropzone-title {
+    font-size: 1.15em;
+  }
+
+  .cp-dropzone-copy {
+    font-size: 0.9em;
+    line-height: 1.4;
+  }
+
+  /* 사진을 올리면 이 버튼이 바로 화면에 보여야 하므로, 위쪽 여백을 줄여
+     스크롤 없이 닿을 수 있게 합니다. */
+  .cp-image-count {
+    margin-top: 12px;
+  }
+
+  .cp-insight-trigger {
+    margin-top: 14px;
+    padding-top: 14px;
+  }
+}
+
+/* Mobile L 부근(~400px 이상)에서는 "글자 크기" 라벨과 버튼 사이에 여유를 좀 더 둡니다. */
+@media (min-width: 400px) and (max-width: 560px) {
+  .cp-toolbar-label {
+    margin-right: 18px;
   }
 }
 
@@ -770,6 +924,7 @@
   z-index: 61;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
   overflow-y: auto;
 }
 
