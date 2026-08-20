@@ -1,55 +1,68 @@
-# AX R&D VMD Evaluation Web App
+# VMD Insight
 
-VMD 담당자가 매장 사진을 업로드하면 LM Studio에서 실행 중인 Gemma 12B 모델로 IP/PP/VP 존을 판별하고, VMD 평가 점수와 개선 코멘트를 JSON 및 Excel로 정리하는 로컬 웹앱입니다.
+매장 사진을 기반으로 VMD 평가와 소비자용 매장 안내를 제공하는 AI 웹 애플리케이션입니다. 관리자 페이지에서는 VP/PP/IP 존별 Visual Merchandising 평가, 점수, 개선 코멘트, Excel/PDF 리포트를 생성하고, 소비자 페이지에서는 사진 속 의류/공간을 분석해 상품 안내 또는 이동 안전 정보를 제공합니다.
 
-현재 단계의 목표는 속도 최적화보다 “AI 결과가 실제 VMD 평가에 쓸 만한지 확인할 수 있는 구조”를 만드는 것입니다. 따라서 Gemma 12B 원본 모델을 우선 사용하고, QAT 모델은 추후 경량화 비교 단계에서 검토합니다.
+현재 구현은 `FastAPI` 백엔드와 `React + Vite` 프론트엔드로 구성되어 있으며, 비전 언어 모델 호출은 NVIDIA NIM의 OpenAI-compatible API를 사용합니다.
 
 ## 주요 기능
 
-- 이미지 여러 장 업로드 및 미리보기
-- IP/PP/VP 존 자동 판별 또는 사용자 지정
-- 단일 브랜드/편집숍 등 매장 유형 선택
-- 균형/비판적/부드러운 비판 톤 선택
-- 평가 항목 선택 및 추가 기준 입력
-- LM Studio OpenAI-compatible API 연동
-- 고정 JSON 스키마 기반 VMD 분석 결과 수신
-- 총점, 항목별 점수, 사진 품질, 마네킹, 방해물, 개선 제안 표시
-- 단일 분석 결과 및 여러 이미지 일괄 분석 결과를 Excel로 저장
-- 패디과/VMD 담당자 피드백용 Excel 컬럼 포함
+- 관리자 페이지: 매장 사진 업로드, 카메라 촬영, VP/PP/IP 존 선택
+- VMD 평가: 총점, 등급, 항목별 점수, 사진 품질, 마네킹, 방해물, 개선 제안
+- 일괄 분석: 여러 이미지를 이미지별로 분석하고 Excel/PDF 결과 생성
+- 소비자 페이지: 사진 기반 의류 안내 또는 공간 접근성 안내
+- 상품 질의: 사진에서 탐지한 품목과 MCM 카탈로그 기반 제품 추천
+- 접근성 UI: 글자 크기 조절, 고대비 모드, 키보드 포커스, 음성 읽기
+- 운영 보호: 이미지 용량 제한, 요청 수 제한, 선택적 `X-App-Key` 보호, 분석 캐시
 
 ## 실행 방법
 
-1. LM Studio에서 Gemma 12B 원본 모델을 로드합니다.
-2. LM Studio의 Local Server를 켭니다.
-3. 기본 서버 주소가 아래와 같은지 확인합니다.
-
-```text
-http://127.0.0.1:1234/v1
-```
-
-4. 이 프로젝트 폴더에서 웹앱 서버를 실행합니다.
+### 1. 백엔드 설정
 
 ```powershell
-python app/server.py
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+Copy-Item .env.example .env
 ```
 
-5. 브라우저에서 아래 주소를 엽니다.
+`backend/.env`에 NVIDIA NIM API 키를 입력합니다.
 
 ```text
-http://127.0.0.1:8000
+NIM_API_KEY=your_api_key_here
+NIM_BASE_URL=https://integrate.api.nvidia.com/v1
+NIM_MODEL=meta/llama-3.2-11b-vision-instruct
 ```
 
-## 설정
-
-환경변수로 LM Studio 주소와 모델명을 바꿀 수 있습니다.
+백엔드를 실행합니다.
 
 ```powershell
-$env:LMSTUDIO_BASE_URL="http://127.0.0.1:1234/v1"
-$env:LMSTUDIO_MODEL="google/gemma-4-12b"
-python app/server.py
+python run.py
 ```
 
-LM Studio에서 실제로 표시되는 모델명이 다르면 웹앱의 모델명 입력칸에 그대로 입력하면 됩니다.
+기본 주소는 `http://127.0.0.1:8000`입니다. 이 주소에서 빌드된 프론트엔드 정적 파일도 함께 서빙합니다.
+
+### 2. 프론트엔드 개발 서버
+
+프론트엔드를 별도 개발 서버로 실행하려면 다음을 사용합니다.
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+프론트엔드를 별도 포트에서 실행할 경우 `backend/.env`의 `CORS_ORIGINS`에 해당 주소를 추가하세요.
+
+## API 요약
+
+- `GET /api/health`: 백엔드와 NIM 연결 상태 확인
+- `POST /api/analyze`: 여러 사진을 하나의 장면으로 묶어 VMD 분석
+- `POST /api/batch-analyze`: 사진별 독립 VMD 분석 후 Excel/PDF 생성
+- `POST /api/consumer/photo-insight`: 소비자용 사진 안내 생성
+- `POST /api/consumer/ask`: 카탈로그 기반 제품 질문 답변
+- `POST /api/consumer/catalog-products`: 탐지 품목에 맞는 제품 카드 데이터 반환
+- `GET /api/download?file=...`: 생성된 Excel/PDF/JSON 다운로드
 
 ## 폴더 구조
 
@@ -59,24 +72,29 @@ LM Studio에서 실제로 표시되는 모델명이 다르면 웹앱의 모델�
 ├─ PRD.md
 ├─ TECHNICAL_DESIGN.md
 ├─ CHECKLIST.md
-├─ requirements.txt
-├─ app/
-│  ├─ server.py
-│  └─ static/
-│     ├─ index.html
-│     ├─ styles.css
-│     └─ app.js
+├─ backend/
+│  ├─ run.py
+│  ├─ requirements.txt
+│  ├─ .env.example
+│  └─ app/
+│     ├─ main.py
+│     ├─ config.py
+│     ├─ schemas.py
+│     ├─ api/
+│     ├─ services/
+│     └─ export/
+├─ frontend/
+│  ├─ package.json
+│  ├─ index.html
+│  └─ src/
 ├─ data/
 │  └─ samples/
 └─ outputs/
+   ├─ json/
    ├─ excel/
-   └─ json/
+   └─ pdf/
 ```
 
-## 현재 프로토타입 범위
+## 현재 상태
 
-- 프론트엔드는 정적 HTML/CSS/JavaScript로 구현했습니다.
-- 백엔드는 추가 설치를 줄이기 위해 Python 표준 라이브러리 기반 HTTP 서버로 구현했습니다.
-- Excel 저장은 `openpyxl`을 우선 사용합니다.
-- `openpyxl`이 없는 환경에서도 내장 XLSX 생성기로 `.xlsx` 파일을 저장합니다.
-- 실제 분석 품질 검증은 LM Studio에서 Gemma 12B를 켠 뒤 샘플 이미지로 진행해야 합니다.
+MVP 기능은 FastAPI/React 구조로 구현되어 있습니다. 다음 검증의 초점은 실제 매장 샘플 사진으로 VMD 평가 품질, 소비자 안내 정확도, NIM 응답 안정성, Excel/PDF 리포트 품질을 확인하는 것입니다.
