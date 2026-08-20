@@ -59,10 +59,11 @@ function PhotoInsightModal({
       triggerRef?.current?.focus();
       narration?.stop();
     }
-  }, [isOpen, triggerRef, narration]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOpen, triggerRef]);
 
-  // 결과가 바뀌었는데(같은 모달을 다시 열거나 새 사진을 분석) 예전 텍스트를
-  // 계속 읽고 있으면 안 되므로, 내용이 바뀌면 재생 중이던 음성을 멈춥니다.
+  // 새 사진을 살펴봐서 내용이 바뀌면(이전 모달 내용과 다른 서술/항목이 오면),
+  // 읽고 있던 이전 내용을 계속 읽지 않도록 멈춥니다.
   useEffect(() => {
     narration?.stop();
     // eslint-disable-next-line react-hooks/exhaustive-deps

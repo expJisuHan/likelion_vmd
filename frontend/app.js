@@ -24,42 +24,48 @@ const PDF_MIME_TYPE = "application/pdf";
 let historyAssetDbPromise = null;
 let lastExcelBlobUrl = "";
 let lastPdfBlobUrl = "";
+// initApp()가 다시 호출될 때(탭 재진입, React StrictMode의 이중 effect 등) 이전에 붙인
+// 리스너를 확실히 떼어내기 위한 AbortController. 매번 새로 만들어 이전 것은 abort합니다.
+let appAbortController = null;
 
-const imageInput = document.getElementById("imageInput");
-const cameraFallbackInput = document.getElementById("cameraFallbackInput");
-const startCameraBtn = document.getElementById("startCameraBtn");
-const cameraPanel = document.getElementById("cameraPanel");
-const cameraPreview = document.getElementById("cameraPreview");
-const capturePhotoBtn = document.getElementById("capturePhotoBtn");
-const stopCameraBtn = document.getElementById("stopCameraBtn");
-const previewGrid = document.getElementById("previewGrid");
-const analyzeBtn = document.getElementById("analyzeBtn");
-const batchBtn = document.getElementById("batchBtn");
-const progressText = document.getElementById("progressText");
-const downloadLink = document.getElementById("downloadLink");
-const pdfDownloadLink = document.getElementById("pdfDownloadLink");
-const jsonPath = document.getElementById("jsonPath");
-const keywordInput = document.getElementById("keywordInput");
-const addKeywordBtn = document.getElementById("addKeywordBtn");
-const keywordChips = document.getElementById("keywordChips");
-const historyGrid = document.getElementById("historyGrid");
-const historyEmpty = document.getElementById("historyEmpty");
-const historyCount = document.getElementById("historyCount");
-const historyPagination = document.getElementById("historyPagination");
-const historyPrevBtn = document.getElementById("historyPrevBtn");
-const historyNextBtn = document.getElementById("historyNextBtn");
-const historyPageLabel = document.getElementById("historyPageLabel");
-const historyModal = document.getElementById("historyModal");
-const clearHistoryBtn = document.getElementById("clearHistoryBtn");
-const closeHistoryBtn = document.getElementById("closeHistoryBtn");
-const historyPdfDownloadLink = document.getElementById("historyPdfDownloadLink");
-const historyStorySection = document.getElementById("historyStorySection");
-const historyStoryProgress = document.getElementById("historyStoryProgress");
-const historyStoryViewport = document.getElementById("historyStoryViewport");
-const historyStoryPrevBtn = document.getElementById("historyStoryPrevBtn");
-const historyStoryNextBtn = document.getElementById("historyStoryNextBtn");
-const historyPhotoList = document.getElementById("historyPhotoList");
-const historyPhotoListCount = document.getElementById("historyPhotoListCount");
+// DOM 요소 참조는 React가 "앱(분석)" 뷰를 마운트할 때마다 새로 만들어지므로,
+// 모듈 최초 로드 시 한 번만 querySelector하면 탭을 전환했다 돌아왔을 때 안 붙습니다.
+// let로 선언해두고 initApp()에서 매번 다시 조회합니다.
+let imageInput;
+let cameraFallbackInput;
+let startCameraBtn;
+let cameraPanel;
+let cameraPreview;
+let capturePhotoBtn;
+let stopCameraBtn;
+let previewGrid;
+let analyzeBtn;
+let batchBtn;
+let progressText;
+let downloadLink;
+let pdfDownloadLink;
+let jsonPath;
+let keywordInput;
+let addKeywordBtn;
+let keywordChips;
+let historyGrid;
+let historyEmpty;
+let historyCount;
+let historyPagination;
+let historyPrevBtn;
+let historyNextBtn;
+let historyPageLabel;
+let historyModal;
+let clearHistoryBtn;
+let closeHistoryBtn;
+let historyPdfDownloadLink;
+let historyStorySection;
+let historyStoryProgress;
+let historyStoryViewport;
+let historyStoryPrevBtn;
+let historyStoryNextBtn;
+let historyPhotoList;
+let historyPhotoListCount;
 
 function normalizeHistoryEntries(entries) {
   const normalized = [];
@@ -953,13 +959,15 @@ async function openHistoryDetail(entry) {
   }
 }
 
-function setupTabs() {
-  document.querySelectorAll(".tab-button").forEach((button) => {
+function setupTabs(signal) {
+  // data-tab-target이 있는 버튼만 대상으로 합니다. App.jsx 상단의 "홈페이지/앱(분석)" 전환
+  // 버튼도 같은 .tab-button 클래스를 쓰지만 data-tab-target이 없어서 자연히 제외됩니다.
+  document.querySelectorAll("[data-tab-target]").forEach((button) => {
     button.addEventListener("click", () => {
       const targetId = button.dataset.tabTarget;
-      document.querySelectorAll(".tab-button").forEach((item) => item.classList.toggle("active", item === button));
+      document.querySelectorAll("[data-tab-target]").forEach((item) => item.classList.toggle("active", item === button));
       document.querySelectorAll(".tab-panel").forEach((panel) => panel.classList.toggle("hidden", panel.id !== targetId));
-    });
+    }, { signal });
   });
 }
 
@@ -1008,6 +1016,8 @@ function applyDownloadLinks(payload) {
 }
 
 function renderResult(result, payload) {
+  state.lastResult = result;
+  state.lastPayload = payload;
   document.getElementById("totalScore").textContent = result.total_score ?? "--";
   document.getElementById("grade").textContent = result.grade || "평가 보류";
   document.getElementById("zoneResult").textContent = `${result.user_selected_zone || "VP"} → ${result.ai_detected_zone || "UNKNOWN"}`;
@@ -1097,75 +1107,128 @@ async function batchAnalyze() {
   }
 }
 
-imageInput.addEventListener("change", async (event) => {
-  await addFiles(event.target.files);
-  event.target.value = "";
-});
-cameraFallbackInput.addEventListener("change", async (event) => {
-  await addFiles(event.target.files);
-  event.target.value = "";
-});
-analyzeBtn.addEventListener("click", analyze);
-batchBtn.addEventListener("click", batchAnalyze);
-startCameraBtn.addEventListener("click", startCamera);
-capturePhotoBtn.addEventListener("click", capturePhoto);
-stopCameraBtn.addEventListener("click", stopCamera);
-addKeywordBtn.addEventListener("click", addFocusKeyword);
-keywordInput.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
+// "앱(분석)" 뷰가 마운트될 때마다(최초 진입 + 다른 탭에서 돌아올 때) App.jsx가 호출합니다.
+// React가 매번 새 DOM 노드를 만들기 때문에, 요소 조회와 이벤트 바인딩을 여기서 다시 합니다.
+export function initApp() {
+  appAbortController?.abort();
+  appAbortController = new AbortController();
+  const { signal } = appAbortController;
+
+  imageInput = document.getElementById("imageInput");
+  cameraFallbackInput = document.getElementById("cameraFallbackInput");
+  startCameraBtn = document.getElementById("startCameraBtn");
+  cameraPanel = document.getElementById("cameraPanel");
+  cameraPreview = document.getElementById("cameraPreview");
+  capturePhotoBtn = document.getElementById("capturePhotoBtn");
+  stopCameraBtn = document.getElementById("stopCameraBtn");
+  previewGrid = document.getElementById("previewGrid");
+  analyzeBtn = document.getElementById("analyzeBtn");
+  batchBtn = document.getElementById("batchBtn");
+  progressText = document.getElementById("progressText");
+  downloadLink = document.getElementById("downloadLink");
+  pdfDownloadLink = document.getElementById("pdfDownloadLink");
+  jsonPath = document.getElementById("jsonPath");
+  keywordInput = document.getElementById("keywordInput");
+  addKeywordBtn = document.getElementById("addKeywordBtn");
+  keywordChips = document.getElementById("keywordChips");
+  historyGrid = document.getElementById("historyGrid");
+  historyEmpty = document.getElementById("historyEmpty");
+  historyCount = document.getElementById("historyCount");
+  historyPagination = document.getElementById("historyPagination");
+  historyPrevBtn = document.getElementById("historyPrevBtn");
+  historyNextBtn = document.getElementById("historyNextBtn");
+  historyPageLabel = document.getElementById("historyPageLabel");
+  historyModal = document.getElementById("historyModal");
+  clearHistoryBtn = document.getElementById("clearHistoryBtn");
+  closeHistoryBtn = document.getElementById("closeHistoryBtn");
+  historyPdfDownloadLink = document.getElementById("historyPdfDownloadLink");
+  historyStorySection = document.getElementById("historyStorySection");
+  historyStoryProgress = document.getElementById("historyStoryProgress");
+  historyStoryViewport = document.getElementById("historyStoryViewport");
+  historyStoryPrevBtn = document.getElementById("historyStoryPrevBtn");
+  historyStoryNextBtn = document.getElementById("historyStoryNextBtn");
+  historyPhotoList = document.getElementById("historyPhotoList");
+  historyPhotoListCount = document.getElementById("historyPhotoListCount");
+
+  imageInput.addEventListener("change", async (event) => {
+    await addFiles(event.target.files);
+    event.target.value = "";
+  }, { signal });
+  cameraFallbackInput.addEventListener("change", async (event) => {
+    await addFiles(event.target.files);
+    event.target.value = "";
+  }, { signal });
+  analyzeBtn.addEventListener("click", analyze, { signal });
+  batchBtn.addEventListener("click", batchAnalyze, { signal });
+  startCameraBtn.addEventListener("click", startCamera, { signal });
+  capturePhotoBtn.addEventListener("click", capturePhoto, { signal });
+  stopCameraBtn.addEventListener("click", stopCamera, { signal });
+  addKeywordBtn.addEventListener("click", addFocusKeyword, { signal });
+  keywordInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addFocusKeyword();
+    }
+  }, { signal });
+
+  const dropzone = document.querySelector(".dropzone");
+  dropzone.addEventListener("dragover", (event) => {
     event.preventDefault();
-    addFocusKeyword();
-  }
-});
+    dropzone.classList.add("dragging");
+  }, { signal });
+  dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragging"), { signal });
+  dropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    dropzone.classList.remove("dragging");
+    addFiles(event.dataTransfer.files);
+  }, { signal });
 
-const dropzone = document.querySelector(".dropzone");
-dropzone.addEventListener("dragover", (event) => {
-  event.preventDefault();
-  dropzone.classList.add("dragging");
-});
-dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragging"));
-dropzone.addEventListener("drop", (event) => {
-  event.preventDefault();
-  dropzone.classList.remove("dragging");
-  addFiles(event.dataTransfer.files);
-});
-window.addEventListener("beforeunload", stopCamera);
-
-state.history = loadHistory();
-renderHistory();
-setupTabs();
-closeHistoryBtn.addEventListener("click", closeHistoryDetail);
-historyModal.addEventListener("click", (event) => {
-  if (event.target === historyModal) {
-    closeHistoryDetail();
-  }
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && !historyModal.classList.contains("hidden")) {
-    closeHistoryDetail();
-  }
-});
-clearHistoryBtn.addEventListener("click", () => {
-  if (!state.history.length) {
-    return;
-  }
-  state.history = [];
-  state.historyPage = 0;
-  void clearHistoryAssets();
-  persistHistory();
+  state.history = loadHistory();
   renderHistory();
-});
-historyPrevBtn.addEventListener("click", () => {
-  if (state.historyPage > 0) {
-    state.historyPage -= 1;
+  setupTabs(signal);
+  closeHistoryBtn.addEventListener("click", closeHistoryDetail, { signal });
+  historyModal.addEventListener("click", (event) => {
+    if (event.target === historyModal) {
+      closeHistoryDetail();
+    }
+  }, { signal });
+  clearHistoryBtn.addEventListener("click", () => {
+    if (!state.history.length) {
+      return;
+    }
+    state.history = [];
+    state.historyPage = 0;
+    void clearHistoryAssets();
+    persistHistory();
     renderHistory();
+  }, { signal });
+  historyPrevBtn.addEventListener("click", () => {
+    if (state.historyPage > 0) {
+      state.historyPage -= 1;
+      renderHistory();
+    }
+  }, { signal });
+  historyNextBtn.addEventListener("click", () => {
+    if ((state.historyPage + 1) * HISTORY_PAGE_SIZE < state.history.length) {
+      state.historyPage += 1;
+      renderHistory();
+    }
+  }, { signal });
+  historyStoryPrevBtn.addEventListener("click", () => showHistoryStory(state.historyStoryIndex - 1), { signal });
+  historyStoryNextBtn.addEventListener("click", () => showHistoryStory(state.historyStoryIndex + 1), { signal });
+
+  // 이전에 쌓아둔 state(업로드 이미지, 키워드, 마지막 분석 결과)를 새 DOM에 복원합니다.
+  renderPreviews();
+  renderFocusKeywords();
+  if (state.lastResult) {
+    renderResult(state.lastResult, state.lastPayload || {});
+  }
+}
+
+// window/document 레벨 리스너는 페이지 생명주기 동안 유지되는 대상이라 모듈 로드 시 한 번만 등록합니다.
+window.addEventListener("beforeunload", stopCamera);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && historyModal && !historyModal.classList.contains("hidden")) {
+    closeHistoryDetail();
   }
 });
-historyNextBtn.addEventListener("click", () => {
-  if ((state.historyPage + 1) * HISTORY_PAGE_SIZE < state.history.length) {
-    state.historyPage += 1;
-    renderHistory();
-  }
-});
-historyStoryPrevBtn.addEventListener("click", () => showHistoryStory(state.historyStoryIndex - 1));
-historyStoryNextBtn.addEventListener("click", () => showHistoryStory(state.historyStoryIndex + 1));
