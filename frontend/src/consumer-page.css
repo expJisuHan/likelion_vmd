@@ -1015,6 +1015,126 @@
   background: #ffffff;
 }
 
+/* 탐색된 품목 관련 MCM 카탈로그 제품 보기 */
+.cp-catalog-trigger {
+  margin-top: 18px;
+}
+
+.cp-catalog-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 대표 제품 + 연관 제품 상세 뷰 */
+.cp-product-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cp-product-back {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cp-product-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cp-product-image {
+  width: 100%;
+  max-width: 320px;
+  aspect-ratio: 1 / 1;
+  object-fit: cover;
+  border-radius: var(--cp-radius-card);
+  border: 1px solid var(--cp-line);
+  background: var(--cp-highlight-soft);
+}
+
+.cp-product-name {
+  margin: 4px 0 0;
+  font-size: 1.15em;
+  font-weight: 800;
+}
+
+.cp-product-price {
+  margin: 0;
+  font-weight: 700;
+  color: var(--cp-highlight);
+}
+
+.cp-product-meta {
+  margin: 0;
+  color: var(--cp-muted);
+  font-size: 0.92em;
+}
+
+.cp-product-desc {
+  margin: 0;
+  color: var(--cp-muted);
+}
+
+.cp-related-products {
+  border-top: 1px solid var(--cp-line);
+  padding-top: 16px;
+}
+
+.cp-related-heading {
+  margin: 0 0 10px;
+  font-weight: 700;
+}
+
+.cp-related-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cp-related-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--cp-line);
+  border-radius: var(--cp-radius-input);
+  background: var(--cp-surface);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cp-related-item:hover {
+  border-color: var(--cp-line-strong);
+}
+
+.cp-related-item img {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: var(--cp-highlight-soft);
+}
+
+.cp-related-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.cp-related-price {
+  color: var(--cp-muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+
 /* 제품 질문하기 */
 .cp-ask-box {
   margin-top: 24px;
