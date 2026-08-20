@@ -210,10 +210,6 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
             "- photo_quality.comment: 촬영 상태와 분석 신뢰도 영향을 1~2문장으로 작성하세요.",
             "사진에서 확인할 수 없는 사실을 분량을 채우기 위해 추측하지 마세요.",
             "모든 점수는 0~100 정수로 작성하세요.",
-            "criteria_evaluations, positive_points, critical_issues, improvement_suggestions, final_summary "
-            "전체를 통틀어 같은 문장이나 같은 문장 뼈대('다양한 색상과 패턴의 상품을 조합하여 ~하고 "
-            "있습니다' 같은 틀)를 반복하지 마세요. 각 문장은 서로 다른 구체적 사실(색상 이름, 물체 이름, "
-            "개수, 위치 중 최소 2가지)을 담아야 합니다.",
         ]
     )
 

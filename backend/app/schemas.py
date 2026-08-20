@@ -38,3 +38,7 @@ class ConsumerPhotoRequest(BaseModel):
 
 class ConsumerAskRequest(BaseModel):
     question: str = Field(..., min_length=1)
+
+
+class ConsumerCatalogRequest(BaseModel):
+    item_type: str = Field(..., min_length=1)
