@@ -25,19 +25,20 @@ EXCEL_COMMON_HEADERS = [
 ]
 
 
-def excel_headers_for_zone(zone: str | None) -> list[str]:
+def excel_headers_for_zone(zone: str | None, criteria_names: list[str] | None = None) -> list[str]:
     headers = list(EXCEL_COMMON_HEADERS)
-    for criterion in criteria_for_zone(zone):
+    for criterion in criteria_names or criteria_for_zone(zone):
         headers.extend([f"{criterion} 점수", f"{criterion} 근거", f"{criterion} 문제점", f"{criterion} 개선안"])
     return headers
 
 
-def excel_column_widths_for_zone(zone: str | None) -> dict[int, float]:
-    if normalize_zone(zone) == "VP":
+def excel_column_widths_for_zone(zone: str | None, criteria_names: list[str] | None = None) -> dict[int, float]:
+    criteria_count = len(criteria_names) if criteria_names is not None else len(criteria_for_zone(zone))
+    if normalize_zone(zone) == "VP" and criteria_names is None:
         values = [18, 14, 14, 14, 14, 22, 14, 22, 14, 42, 42, 14, 42, 42, 22, 22, 22, 22, 22, 14, 36, 36, 36, 22, 14, 36, 36, 36, 22, 14, 36, 36]
     else:
         values = [18, 14, 14, 22, 14, 42, 42, 42, 42, 42, 42, 14]
-        for _criterion in criteria_for_zone(zone):
+        for _ in range(criteria_count):
             values.extend([14, 36, 36, 36])
     return {index: width for index, width in enumerate(values, start=1)}
 
@@ -62,7 +63,7 @@ def format_elapsed_export(seconds: float | int | None) -> str:
     return format_elapsed(seconds)
 
 
-def result_to_row(record: dict[str, Any], zone: str | None = None) -> list[Any]:
+def result_to_row(record: dict[str, Any], zone: str | None = None, criteria_names: list[str] | None = None) -> list[Any]:
     result = record.get("result", {})
     photo = result.get("photo_quality", {})
     selected_zone = normalize_zone(zone or result.get("user_selected_zone"))
@@ -81,10 +82,25 @@ def result_to_row(record: dict[str, Any], zone: str | None = None) -> list[Any]:
         format_elapsed_export(record.get("elapsed_seconds")),
     ]
     by_criterion = criteria_evaluation_map(result)
-    for criterion in criteria_for_zone(selected_zone):
+    for criterion in criteria_names or criteria_for_zone(selected_zone):
         item = by_criterion.get(criterion, {})
         row.extend([item.get("score"), item.get("evidence", ""), item.get("issue", ""), item.get("suggestion", "")])
     return row
+
+
+def record_criteria_names(record: dict[str, Any]) -> list[str] | None:
+    """레코드에 담긴 실제 criteria_evaluations의 항목 이름을 반환합니다(없으면 None).
+
+    정상 파이프라인에서는 apply_defaults()가 이미 zones.py 목록과 정확히 같은 이름으로
+    채워두므로 결과가 criteria_for_zone(zone)과 동일하지만, 사진에 맞춰 평가 항목 이름을
+    직접 지정하는 경우(예: 시연용 고정 응답)에는 Excel 헤더도 그 이름을 그대로 씁니다.
+    """
+    names = [
+        str(item.get("criterion", "")).strip()
+        for item in record.get("result", {}).get("criteria_evaluations", [])
+        if isinstance(item, dict) and str(item.get("criterion", "")).strip()
+    ]
+    return names or None
 
 
 def save_json(name: str, payload: dict[str, Any]) -> str:

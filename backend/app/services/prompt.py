@@ -134,6 +134,22 @@ def system_prompt() -> str:
         "답변은 반드시 JSON 스키마에 맞는 JSON 객체 하나만 반환합니다. 마크다운, 설명문, 코드블록은 금지합니다. "
         "평가는 칭찬 위주가 아니라 실제 개선 가능한 문제를 찾는 비판적 분석이어야 합니다. "
         "다만 표현은 사용자가 받아들이기 쉬운 부드러운 전문가 톤을 유지합니다. "
+        "\n\n"
+        "[절대 규칙 — 하나라도 어기면 안 됨]\n"
+        "1. 사진에서 실제로 보이는 색상 이름, 물체(상품·집기·소품) 이름, 개수, 위치, 재질, 형태만 "
+        "근거로 쓰세요. 확인할 수 없는 사실을 분량을 채우려고 지어내지 마세요. "
+        "2. '다양한'이라는 표현은 반드시 구체적인 색상 이름·개수와 함께만 쓰세요('다양한 색상' "
+        "금지, '빨간색·파란색·노란색 등 3가지 이상의 원색'처럼 실제로 보이는 색과 개수를 함께 "
+        "쓰면 허용). 색이나 개수를 특정할 수 없으면 이 표현 자체를 쓰지 마세요. "
+        "3. 같은 문장이나 같은 문장 구조를 서로 다른 필드·항목에 두 번 이상 쓰지 마세요. "
+        "criteria_evaluations의 각 항목, positive_points, critical_issues, improvement_suggestions은 "
+        "매번 그 항목만의 구체적인 관찰(위치, 대상, 색, 개수, 형태)로 시작해야 하며, 다른 "
+        "항목과 문장 뼈대를 재사용하면 안 됩니다. "
+        "4. criteria_evaluations의 issue와 suggestion을 빈 문자열로 남기지 마세요. 항목마다 실제 "
+        "문제점 하나와 그에 대한 구체적인 개선안을 반드시 채우세요. "
+        "5. 한 criteria_evaluations 항목 안에서 evidence·issue·suggestion 세 문장이 서로 같거나 "
+        "거의 같은 내용이면 안 됩니다. 각각 다른 관찰·문제·해법을 담으세요. "
+        "\n\n"
         "마네킹이 없는 사진에서는 마네킹 코멘트를 작성하지 말고, 먼저 마네킹 유무를 판단하세요. "
         "머리 있는 마네킹, 머리 없는 바디 마네킹, 옷걸이/상하의 진열을 구분하세요. "
         "의자, 상자, 공기청정기, 화분, 테이블, 적재물 등은 상품 시야나 동선을 방해하면 방해물로 기록하세요. "
@@ -182,7 +198,10 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
             "MANNEQUIN_TYPE: <mannequin_with_head 또는 headless_body_mannequin 또는 hanger_display 또는 none>",
             "결과 분량 기준을 반드시 지키세요.",
             "- criteria_evaluations: 아래 존 전용 평가 항목을 같은 이름과 같은 순서로 모두 작성하세요. "
-            "항목마다 score(0~100 정수), evidence/issue/suggestion(각각 정확히 1문장)을 포함하세요.",
+            "항목마다 score(0~100 정수), evidence/issue/suggestion(각각 정확히 1문장)을 포함하세요. "
+            "evidence는 그 항목과 직접 관련된 구체적 관찰(색, 물체, 개수, 위치)로, issue는 evidence와 "
+            "겹치지 않는 실제 문제 하나로, suggestion은 그 issue를 해결하는 구체적 조치로 각각 다르게 "
+            "쓰세요. issue와 suggestion을 빈 문자열로 남기지 마세요.",
             *[f"  {index}. {criterion}" for index, criterion in enumerate(zone_criteria, start=1)],
             "- positive_points: 서로 다른 강점 2~3개. 각 항목은 관찰 근거와 효과를 담아 1문장으로 작성하세요.",
             "- critical_issues: 서로 다른 핵심 문제 3~4개. 각 항목은 위치/대상, 관찰 근거, VMD 영향을 담아 1문장으로 작성하세요.",
@@ -191,6 +210,10 @@ def build_user_text(options: dict[str, Any], image_count: int) -> str:
             "- photo_quality.comment: 촬영 상태와 분석 신뢰도 영향을 1~2문장으로 작성하세요.",
             "사진에서 확인할 수 없는 사실을 분량을 채우기 위해 추측하지 마세요.",
             "모든 점수는 0~100 정수로 작성하세요.",
+            "criteria_evaluations, positive_points, critical_issues, improvement_suggestions, final_summary "
+            "전체를 통틀어 같은 문장이나 같은 문장 뼈대('다양한 색상과 패턴의 상품을 조합하여 ~하고 "
+            "있습니다' 같은 틀)를 반복하지 마세요. 각 문장은 서로 다른 구체적 사실(색상 이름, 물체 이름, "
+            "개수, 위치 중 최소 2가지)을 담아야 합니다.",
         ]
     )
 

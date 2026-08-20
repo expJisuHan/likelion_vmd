@@ -12,6 +12,7 @@ from ..export.excel_export import save_excel
 from ..export.pdf_export import save_pdf
 from ..schemas import AnalyzeRequest, BatchAnalyzeRequest
 from ..services.analysis import analyze_images
+from ..services.demo_mode import build_vmd_demo_result, is_vmd_demo_image
 from ..services.records import make_record, record_zone
 from ..services.request_guard import enforce_app_key, enforce_payload_limits, enforce_rate_limit
 from ..services.zones import normalize_zone
@@ -67,10 +68,13 @@ def api_analyze(payload: AnalyzeRequest) -> Dict[str, Any]:
     enforce_payload_limits(images)
 
     started = time.time()
-    try:
-        analysis = analyze_images(images, options)
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=friendly_error_message(exc)) from exc
+    if len(images) == 1 and is_vmd_demo_image(images[0].get("dataUrl", "")):
+        analysis = build_vmd_demo_result()
+    else:
+        try:
+            analysis = analyze_images(images, options)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=friendly_error_message(exc)) from exc
     elapsed_seconds = time.time() - started
 
     image_names = ", ".join(safe_file_name(img.get("name", "image")) for img in images)

@@ -6,7 +6,13 @@ from typing import Any
 from xml.sax.saxutils import escape
 
 from ..config import settings
-from ..services.records import excel_column_widths_for_zone, excel_headers_for_zone, record_zone, result_to_row
+from ..services.records import (
+    excel_column_widths_for_zone,
+    excel_headers_for_zone,
+    record_criteria_names,
+    record_zone,
+    result_to_row,
+)
 from ..utils import image_data_url_to_media, image_data_url_to_thumbnail, relative_output_path, timestamp
 
 try:
@@ -40,8 +46,9 @@ def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> tuple[
     """openpyxl이 없는 환경을 위한 내장 XLSX 생성기(zip + 수기 OOXML)."""
     path = settings.excel_dir / f"{prefix}_{timestamp()}.xlsx"
     zone = record_zone(records[0]) if records else "VP"
-    headers = excel_headers_for_zone(zone)
-    rows = [headers, *[result_to_row(record, zone) for record in records]]
+    criteria_names = record_criteria_names(records[0]) if records else None
+    headers = excel_headers_for_zone(zone, criteria_names)
+    rows = [headers, *[result_to_row(record, zone, criteria_names) for record in records]]
     image_parts = []
     for row_idx, record in enumerate(records, start=2):
         media = image_data_url_to_media(record.get("image_data_url", ""))
@@ -80,7 +87,7 @@ def save_excel_pure_python(records: list[dict[str, Any]], prefix: str) -> tuple[
     if image_parts:
         content_types.append('<Override PartName="/xl/drawings/drawing1.xml" ContentType="application/vnd.openxmlformats-officedocument.drawing+xml"/>')
 
-    col_widths = excel_column_widths_for_zone(zone)
+    col_widths = excel_column_widths_for_zone(zone, criteria_names)
     cols_xml = "".join(f'<col min="{idx}" max="{idx}" width="{width}" customWidth="1"/>' for idx, width in col_widths.items())
     row_xml = []
     for row_idx, values in enumerate(rows, start=1):
@@ -182,7 +189,8 @@ def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tu
         return save_excel_pure_python(records, prefix)
 
     zone = record_zone(records[0]) if records else "VP"
-    headers = excel_headers_for_zone(zone)
+    criteria_names = record_criteria_names(records[0]) if records else None
+    headers = excel_headers_for_zone(zone, criteria_names)
     wb = Workbook()
     ws = wb.active
     ws.title = f"{zone} 결과"
@@ -198,7 +206,7 @@ def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tu
     image_streams = []
     for record in records:
         row_idx = ws.max_row + 1
-        ws.append(result_to_row(record, zone))
+        ws.append(result_to_row(record, zone, criteria_names))
         if ExcelImage is not None:
             stream = image_data_url_to_thumbnail(record.get("image_data_url", ""))
             if stream is not None:
@@ -208,7 +216,7 @@ def save_excel(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tu
                 ws.add_image(embedded)
                 ws.row_dimensions[row_idx].height = 72
 
-    widths = excel_column_widths_for_zone(zone)
+    widths = excel_column_widths_for_zone(zone, criteria_names)
     for col_idx in range(1, len(headers) + 1):
         letter = get_column_letter(col_idx)
         ws.column_dimensions[letter].width = widths.get(col_idx, 14)
