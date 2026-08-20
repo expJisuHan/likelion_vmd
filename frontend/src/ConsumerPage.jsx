@@ -22,16 +22,6 @@ import {
 } from './mediaUtils';
 import { useSpeechNarration, TTS_RATE_LABELS } from './useSpeechNarration';
 
-// 의류 안내(감각적 서술)와 공간 안내(항목별 접근성 정보)는 형태가 달라서, 음성으로
-// 읽기 전에 하나의 문장 흐름으로 합쳐줘야 합니다. 공간 안내는 화면에서는 카드로
-// 분리해 보여주지만(가독성), 음성으로는 "라벨. 설명." 순서로 이어 읽는 게 자연스럽습니다.
-function buildModalNarration(type, content) {
-  if (!content) return '';
-  if (type === 'clothing') return content.narration || '';
-  const items = content.items || [];
-  return items.map((item) => `${item.label}. ${item.description}`).join(' ');
-}
-
 const TEXT_SIZE_KEY = 'vmd-consumer-text-size';
 const CONTRAST_KEY = 'vmd-consumer-high-contrast';
 
@@ -192,7 +182,14 @@ function PhotoInsightModal({
 
           {isClothing ? (
             <>
-              <p className="cp-modal-text">{content?.narration}</p>
+              <ul className="cp-space-list">
+                {(content?.items || []).map((item, index) => (
+                  <li className="cp-space-item" key={index}>
+                    <strong className="cp-space-label">{item.label}</strong>
+                    <p className="cp-space-desc">{item.description}</p>
+                  </li>
+                ))}
+              </ul>
 
               <div className="cp-ask-box">
                 <label htmlFor="cpAskInput" className="cp-ask-label">이 제품에 대해 더 물어보세요</label>
@@ -284,9 +281,11 @@ export default function ConsumerPage() {
   const insightTriggerRef = useRef(null);
 
   const narration = useSpeechNarration();
+  // clothing 응답은 narration 필드, space 응답은 text 필드에 TTS용 평문이 들어있습니다
+  // (services/consumer_prompt.py·accessibility_prompt.py 참고).
   const narrationText = useMemo(
-    () => buildModalNarration(photoModalType, photoModalContent),
-    [photoModalType, photoModalContent]
+    () => photoModalContent?.narration || photoModalContent?.text || '',
+    [photoModalContent]
   );
 
   useEffect(() => {
@@ -389,9 +388,7 @@ export default function ConsumerPage() {
       const lastImage = previewImages[previewImages.length - 1];
       const payload = await postJson('/api/consumer/photo-insight', { image: lastImage });
       setPhotoModalType(payload.type);
-      setPhotoModalContent(
-        payload.type === 'clothing' ? { narration: payload.narration } : { items: payload.items, text: payload.text }
-      );
+      setPhotoModalContent({ items: payload.items, narration: payload.narration, text: payload.text });
       setIsPhotoModalOpen(true);
     } catch (error) {
       setInsightError(`사진을 살펴보는 데 실패했어요: ${error.message}`);

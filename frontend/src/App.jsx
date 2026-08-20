@@ -9,7 +9,7 @@ export default function App() {
   return (
     <main className="shell">
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginBottom: 12 }}>
-        <button className={`tab-button ${view === 'home' ? 'active' : ''}`} type="button" onClick={() => setView('home')}>홈페이지</button>
+        <button className={`tab-button ${view === 'home' ? 'active' : ''}`} type="button" onClick={() => setView('home')}>관리자 페이지</button>
         <button className={`tab-button ${view === 'consumer' ? 'active' : ''}`} type="button" onClick={() => setView('consumer')}>소비자 페이지</button>
       </div>
 

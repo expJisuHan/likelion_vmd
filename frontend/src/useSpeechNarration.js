@@ -44,6 +44,10 @@ export function useSpeechNarration() {
   const statusRef = useRef(status);
   const utteranceRef = useRef(null);
   const isFirstRateEffect = useRef(true);
+  // 지금까지 읽은 위치(글자 인덱스). Chrome/Edge(Windows)는 speechSynthesis.pause()
+  // 이후 resume()을 호출해도 실제로 이어 읽지 않는 고질적인 버그가 있어,
+  // 네이티브 pause/resume 대신 이 위치부터 다시 speak()하는 방식으로 이어 듣기를 구현합니다.
+  const spokenOffsetRef = useRef(0);
 
   useEffect(() => {
     statusRef.current = status;
@@ -67,6 +71,7 @@ export function useSpeechNarration() {
   const stop = useCallback(() => {
     if (!isSupported) return;
     utteranceRef.current = null;
+    spokenOffsetRef.current = 0;
     window.speechSynthesis.cancel();
     setStatus('idle');
   }, [isSupported]);
@@ -80,14 +85,20 @@ export function useSpeechNarration() {
     };
   }, [isSupported]);
 
-  const speak = useCallback(
-    (text) => {
-      if (!isSupported || !text) return;
-      textRef.current = text;
+  // baseOffset: textRef.current 중 이번에 새로 읽기 시작하는 지점(글자 인덱스).
+  // 처음부터 읽을 땐 0, 이어 듣기일 땐 지난번에 멈춘 지점을 넘겨받습니다.
+  const speakFrom = useCallback(
+    (fullText, baseOffset) => {
+      if (!isSupported || !fullText) return;
+      const remaining = fullText.slice(baseOffset);
+      if (!remaining) {
+        setStatus('done');
+        return;
+      }
       utteranceRef.current = null;
       window.speechSynthesis.cancel();
 
-      const utterance = new window.SpeechSynthesisUtterance(text);
+      const utterance = new window.SpeechSynthesisUtterance(remaining);
       utterance.lang = 'ko-KR';
       utterance.rate = TTS_RATE_OPTIONS[rateKey] ?? 1;
 
@@ -103,6 +114,13 @@ export function useSpeechNarration() {
       utterance.onpause = () => isCurrent() && setStatus('paused');
       utterance.onend = () => isCurrent() && setStatus('done');
       utterance.onerror = () => isCurrent() && setStatus('error');
+      // 단어 경계마다 지금까지 읽은 위치를 기억해둡니다(일시정지 시 사용).
+      utterance.onboundary = (event) => {
+        if (!isCurrent()) return;
+        if (typeof event.charIndex === 'number') {
+          spokenOffsetRef.current = baseOffset + event.charIndex;
+        }
+      };
 
       utteranceRef.current = utterance;
       window.speechSynthesis.speak(utterance);
@@ -110,15 +128,31 @@ export function useSpeechNarration() {
     [isSupported, rateKey]
   );
 
+  const speak = useCallback(
+    (text) => {
+      if (!isSupported || !text) return;
+      textRef.current = text;
+      spokenOffsetRef.current = 0;
+      speakFrom(text, 0);
+    },
+    [isSupported, speakFrom]
+  );
+
+  // Chrome/Edge(Windows)는 speechSynthesis.pause() 이후 resume()을 호출해도
+  // 실제로 이어 읽지 않는 고질적인 버그가 있어, 네이티브 pause 대신
+  // 지금까지 읽은 위치를 기억해두고 재생을 취소하는 방식으로 대체합니다.
   const pause = useCallback(() => {
     if (!isSupported) return;
-    window.speechSynthesis.pause();
+    utteranceRef.current = null;
+    window.speechSynthesis.cancel();
+    setStatus('paused');
   }, [isSupported]);
 
+  // 네이티브 resume() 대신, 멈췄던 위치부터 새로 speak()해 이어 듣기를 구현합니다.
   const resume = useCallback(() => {
-    if (!isSupported) return;
-    window.speechSynthesis.resume();
-  }, [isSupported]);
+    if (!isSupported || !textRef.current) return;
+    speakFrom(textRef.current, spokenOffsetRef.current);
+  }, [isSupported, speakFrom]);
 
   const setRateKey = useCallback((key) => {
     if (TTS_RATE_OPTIONS[key] == null) return;

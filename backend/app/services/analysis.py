@@ -76,16 +76,32 @@ def _find_content_problems(parsed: dict[str, Any]) -> list[str]:
 
     criteria = parsed.get("criteria_evaluations")
     if isinstance(criteria, list):
+        seen_evidence: dict[str, str] = {}
         for entry in criteria:
             if not isinstance(entry, dict):
                 continue
+            criterion = entry.get("criterion", "?")
             evidence = _normalize_for_dup_check(entry.get("evidence"))
             issue = _normalize_for_dup_check(entry.get("issue"))
             suggestion = _normalize_for_dup_check(entry.get("suggestion"))
+            if not issue:
+                problems.append(f"criteria_evaluations의 '{criterion}' 항목은 issue가 비어 있습니다.")
+            if not suggestion:
+                problems.append(f"criteria_evaluations의 '{criterion}' 항목은 suggestion이 비어 있습니다.")
             values = [v for v in (evidence, issue, suggestion) if v]
             if len(values) >= 2 and len(set(values)) < len(values):
-                criterion = entry.get("criterion", "?")
                 problems.append(f"criteria_evaluations의 '{criterion}' 항목은 evidence/issue/suggestion 중 일부가 동일한 문장입니다.")
+            # 서로 다른 평가 항목이 evidence를 그대로 재사용하는 경우도(실측으로 확인:
+            # 모든 항목이 "다양한 색상과 패턴의 상품이 다양한 형태로 배치되어 있습니다"를
+            # 그대로 재사용) 각 항목이 서로 다른 근거를 대야 한다는 지침 위반이라 잡아냅니다.
+            if evidence:
+                if evidence in seen_evidence:
+                    problems.append(
+                        f"criteria_evaluations의 '{criterion}' 항목과 '{seen_evidence[evidence]}' 항목의 "
+                        "evidence가 동일한 문장입니다."
+                    )
+                else:
+                    seen_evidence[evidence] = criterion
 
     return problems
 
@@ -182,13 +198,26 @@ def image_content_items(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
 # "#### criteria_evaluations" 형태와 "**criteria_evaluations**" 형태(모델이 헤더 대신
 # 볼드로 섹션을 표시하는 경우, 실측으로 확인) 둘 다 헤더로 인식합니다. **로 감싼 쪽은
 # 줄 전체가 "**텍스트**"여야만 헤더로 취급합니다 — 그렇지 않으면 "**중요:** 문장..."처럼
-# 문장 중간의 강조 표시까지 헤더로 오인합니다.
-_MD_HEADER_RE = re.compile(r"^\s*(?:#{1,4}\s*(?P<h1>.+?)|\*\*(?P<h2>[^*].*?)\*\*)\s*$")
+# 문장 중간의 강조 표시까지 헤더로 오인합니다. 세 번째 형태로, 어떤 장식도 없이 필드 이름만
+# 단독 줄로 쓰는 경우도 있어(실측으로 확인: "criteria_evaluations:\n1. ...") h3로 인식합니다 —
+# 이 경우는 알려진 필드 이름과 정확히 일치할 때만 헤더로 취급해 일반 문장을 오인하지 않습니다.
+# 뒤에 콜론이 붙는 경우도 실측으로 확인되어 선택적으로 허용합니다.
+_MD_HEADER_RE = re.compile(
+    r"^\s*(?:#{1,4}\s*(?P<h1>.+?)|\*\*(?P<h2>[^*].*?)\*\*|"
+    r"(?P<h3>criteria_evaluations|positive_points|critical_issues|improvement_suggestions|"
+    r"final_summary|photo_quality(?:\.comment)?)[:：]?)\s*$",
+    re.IGNORECASE,
+)
 _MD_NUMBERED_RE = re.compile(r"^\s*\d+[.)]\s+(.+?)\s*$")
+# "강점 1: 문장"/"문제 2: 문장"/"개선안 3: 문장"처럼 한글 라벨 + 번호로 목록을 쓰는 경우도
+# 실측으로 확인되어 번호 목록으로 인식합니다.
+_MD_KOREAN_NUMBERED_RE = re.compile(r"^\s*(?:강점|문제점?|이슈|개선(?:안|점)?)\s*\d+\s*[:：]\s*(.+?)\s*$")
 _MD_BULLET_RE = re.compile(r"^\s*[*\-]\s+(.+?)\s*$")
 _MD_LABELED_BULLET_RE = re.compile(
     r"^\s*[*\-]\s+(evidence|issue|suggestion|score)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE
 )
+# 불릿 없이 "score: 70"처럼 라벨과 값만 단독 줄로 쓰는 경우(실측으로 확인)도 인식합니다.
+_MD_LABELED_LINE_RE = re.compile(r"^\s*(evidence|issue|suggestion|score)\s*[:：]\s*(.+?)\s*$", re.IGNORECASE)
 _MD_LABEL_PREFIX_RE = re.compile(r"^[^\n:：]{1,30}[:：]\s*")
 _MD_EMPHASIS_RE = re.compile(r"^\*{1,2}(.+?)\*{1,2}$")
 
@@ -216,7 +245,7 @@ def _match_top_level_field(title: str) -> str | None:
 
 
 def _header_title(match: re.Match) -> str:
-    return (match.group("h1") or match.group("h2") or "").strip()
+    return (match.group("h1") or match.group("h2") or match.group("h3") or "").strip()
 
 
 def _extract_block_text(lines: list[str]) -> str:
@@ -253,7 +282,7 @@ def _extract_list_items(lines: list[str]) -> list[str]:
             items.append(_strip_md_emphasis(pending_numbered))
 
     for line in lines:
-        numbered_match = _MD_NUMBERED_RE.match(line)
+        numbered_match = _MD_NUMBERED_RE.match(line) or _MD_KOREAN_NUMBERED_RE.match(line)
         if numbered_match:
             flush_pending()
             pending_numbered = numbered_match.group(1)
@@ -330,7 +359,7 @@ def _parse_criteria_block(lines: list[str]) -> list[dict[str, Any]]:
             current_fields = {}
             current_bullets = []
             continue
-        labeled_match = _MD_LABELED_BULLET_RE.match(line)
+        labeled_match = _MD_LABELED_BULLET_RE.match(line) or _MD_LABELED_LINE_RE.match(line)
         if labeled_match and current_title is not None:
             current_fields[labeled_match.group(1).lower()] = labeled_match.group(2)
             continue

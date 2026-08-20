@@ -1,8 +1,10 @@
 """POST /api/consumer/photo-insight, POST /api/consumer/ask — 소비자 페이지 전용 엔드포인트.
 
-photo-insight: 사진 한 장을 clothing/space로 분류한 뒤, clothing이면 VMD 진단 +
-consumer_prompt.py 감각적 서술을, space면 accessibility_prompt.py 공간 안전 평가를
-반환합니다. ask: catalog.py 기반 제품 질문 응답(recommendation_prompt.py)입니다.
+photo-insight: 사진 한 장을 clothing/space로 분류한 뒤, clothing이면
+consumer_prompt.py로 진열 사실(품목/색상/개수/사이즈/가격/위치)을, space면
+accessibility_prompt.py 공간 안전 평가를 반환합니다. 두 플로우 모두 이미지를
+직접 보고 사실을 추출합니다(재서술 2단계 구조 아님). ask: catalog.py 기반
+제품 질문 응답(recommendation_prompt.py)입니다.
 
 세 프롬프트 모두 이 파일에서 오케스트레이션합니다 — services/*.py는 프롬프트 텍스트와
 판정 로직만 담당하고 실제 NIM 호출은 라우트 계층에 모아둔 기존 구조(analyze.py가
@@ -27,8 +29,15 @@ from ..services.accessibility_prompt import (
     parse_accessibility_content,
     render_consumer_text,
 )
-from ..services.analysis import analyze_images
-from ..services.consumer_prompt import consumer_system_prompt, consumer_user_text, has_sufficient_content
+from ..services.consumer_prompt import (
+    consumer_json_schema,
+    consumer_system_prompt,
+    consumer_user_text,
+    parse_consumer_content,
+    render_consumer_narration,
+    render_consumer_sections,
+)
+from ..services.demo_mode import build_demo_response, is_demo_image, run_demo_delay
 from ..services.nim_client import is_retriable_nim_error, nim_model_candidates, nim_request
 from ..services.photo_classifier import classifier_json_schema, classifier_system_prompt, classifier_user_text
 from ..services.recommendation_prompt import (
@@ -122,30 +131,52 @@ def _floor_visible(resized_data_url: str) -> bool:
     return match.group(1).lower() == "true" if match else False
 
 
-def _run_clothing_flow(image: dict[str, Any]) -> dict[str, Any]:
-    options = {
-        "zoneMode": "IP",
-        "storeType": "UNKNOWN",
-        "tone": "SOFT_CRITICAL",
-        "criteria": [],
-        "focusKeywords": [],
-        "extraCriteria": "",
-    }
-    analysis = analyze_images([image], options)
-    result = analysis["result"]
-    if not has_sufficient_content(result):
-        return {"narration": "이 사진에서는 자세한 특징을 확인하기 어려웠어요. 조금 더 가까이서 다시 찍어봐 주시겠어요?"}
+def _run_clothing_flow(resized_data_url: str) -> dict[str, Any]:
+    """예전에는 매장 직원용 VMD 분석(services/analysis.py)을 먼저 돌려 그 결과
+    텍스트만 재서술했지만, 그 2단계 구조 자체가 문제였습니다 — 재서술 단계가
+    이미지를 못 보니 1차 분석이 애초에 안 뽑은 정보(구체적 색상·개수·사이즈·가격·
+    위치)는 절대 나올 수 없고, 대신 "다양하다"류의 빈 문장만 반복됐습니다(실측
+    확인 — 사용자가 직접 지적).
+
+    이미지를 직접 보고 자유 문장으로 사실을 서술하게 바꿔봤지만, "여러 품목·
+    구역이 보이면 하나만 골라라"는 지시를 아무리 강하게 줘도 이 모델은 선반·
+    품목마다 번호를 매겨 전부 나열하는 경향을 반복했습니다(실측 확인, 3차례
+    시도 모두 재발). 몇 문단을 쓸지 자체가 모델의 자유였기 때문입니다. 그래서
+    accessibility_prompt.py와 같은 원리로 JSON 스키마로 필드 개수를 고정해서
+    "하나만 고르기"를 구조적으로 강제하고, 최종 문장은 여기서 코드로 조립합니다.
+
+    이후 사용자 스펙에 맞춰 상품 정보 5필드에 접근성 항목(이동 안전/구역 구분/
+    안내 정보) 7필드를 더해 12필드로 확장했습니다 — accessibility_prompt.py의
+    space 플로우와 카테고리가 겹치지만, 이 플로우는 사진에 상품이 함께 보일 때
+    상품 정보까지 한 번에 주는 것이 목적이라 별도로 유지합니다."""
     payload = {
         "model": settings.nim_model,
         "messages": [
             {"role": "system", "content": consumer_system_prompt()},
-            {"role": "user", "content": consumer_user_text(result)},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": consumer_user_text()},
+                    {"type": "image_url", "image_url": {"url": resized_data_url}},
+                ],
+            },
         ],
-        "temperature": 0.4,
-        "max_tokens": 400,
+        "temperature": 0.3,
+        "max_tokens": 700,
+        "frequency_penalty": 0.6,
+        "presence_penalty": 0.3,
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {"name": "consumer_item_result", "strict": True, "schema": consumer_json_schema()},
+        },
     }
-    raw = _nim_request_resilient(payload, timeout=60)
-    return {"narration": raw["choices"][0]["message"]["content"]}
+    raw = _nim_request_resilient(payload, timeout=90)
+    content = raw["choices"][0]["message"]["content"]
+    fields = parse_consumer_content(content)
+    # items: 프론트가 [상품 정보]/[이동 정보]를 시각적으로 구분해서 보여주기 위한
+    # 구조화된 목록(accessibility_prompt.py의 consumer_items()와 같은 패턴).
+    # narration: TTS 등 순수 텍스트 한 덩어리가 필요할 때를 위해 그대로 유지.
+    return {"items": render_consumer_sections(fields), "narration": render_consumer_narration(fields)}
 
 
 def _run_space_flow(resized_data_url: str) -> dict[str, Any]:
@@ -185,12 +216,20 @@ def api_consumer_photo_insight(payload: ConsumerPhotoRequest) -> dict[str, Any]:
     data_url = image.get("dataUrl", "")
     if not data_url.startswith("data:image/"):
         raise HTTPException(status_code=400, detail="이미지 데이터가 올바르지 않습니다.")
+
+    # 시연용 샘플 사진이면 NIM을 아예 호출하지 않고 미리 써둔 응답을 돌려줍니다
+    # (services/demo_mode.py 참고 — NIM 응답 시간·형식 편차가 라이브 데모
+    # 리스크라 판단).
+    if is_demo_image(data_url):
+        run_demo_delay()
+        return build_demo_response()
+
     resized = resize_image_data_url_for_model(data_url, settings.nim_image_max_dimension, settings.nim_image_max_bytes)
     try:
         if _floor_visible(resized):
             data = _run_space_flow(resized)
             return {"ok": True, "type": "space", **data}
-        data = _run_clothing_flow(image)
+        data = _run_clothing_flow(resized)
         return {"ok": True, "type": "clothing", **data}
     except HTTPException:
         raise

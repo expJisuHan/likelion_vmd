@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import settings
-from ..services.records import criteria_evaluation_map, record_zone
+from ..services.records import record_zone
 from ..services.zones import criteria_for_zone
 from ..utils import format_elapsed, image_data_url_to_media, list_to_lines, relative_output_path, timestamp
 
@@ -169,7 +169,13 @@ def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tupl
         story.append(summary_table)
         story.append(Paragraph("항목별 평가", section_style))
 
-        by_criterion = criteria_evaluation_map(result)
+        # criteria_for_zone(zone) 기준 순회 대신 result에 실제로 담긴 criteria_evaluations를
+        # 그대로 순회합니다 — 정상 파이프라인에서는 apply_defaults()가 이미 zones.py 목록과
+        # 정확히 같은 이름·순서로 채워두므로 결과가 동일하지만, 사진에 맞춰 평가 항목 이름을
+        # 직접 지정하는 경우(예: 시연용 고정 응답)에도 내용이 누락되지 않습니다.
+        criteria_list = result.get("criteria_evaluations")
+        if not isinstance(criteria_list, list) or not criteria_list:
+            criteria_list = [{"criterion": criterion} for criterion in criteria_for_zone(zone)]
         criteria_rows = [
             [
                 Paragraph("평가항목", table_header_style),
@@ -179,11 +185,12 @@ def save_pdf(records: list[dict[str, Any]], prefix: str = "vmd_results") -> tupl
                 Paragraph("개선안", table_header_style),
             ]
         ]
-        for criterion in criteria_for_zone(zone):
-            item = by_criterion.get(criterion, {})
+        for item in criteria_list:
+            if not isinstance(item, dict):
+                continue
             criteria_rows.append(
                 [
-                    Paragraph(pdf_markup(criterion), table_cell_style),
+                    Paragraph(pdf_markup(item.get("criterion")), table_cell_style),
                     Paragraph(pdf_markup(item.get("score")), score_style),
                     Paragraph(pdf_markup(item.get("evidence")), table_cell_style),
                     Paragraph(pdf_markup(item.get("issue")), table_cell_style),
